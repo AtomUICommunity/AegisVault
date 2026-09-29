@@ -135,7 +135,9 @@
                         </StackPanel>
                         <atom:CheckBox Content="{loc:Str Settings_ShowFloatingBall}"
                                        IsChecked="{Binding ShowFloatingBall, Mode=TwoWay}" />
-                        <atom:CheckBox Content="{loc:Str Settings_ReduceMotion}"
+                        <atom:CheckBox x:Name="ReduceMotionCheckBox"
+                                       AutomationProperties.AutomationId="ReduceMotionCheckBox"
+                                       Content="{loc:Str Settings_ReduceMotion}"
                                        IsChecked="{Binding ReduceMotion, Mode=TwoWay}" />
                     </StackPanel>
                 </Border>
@@ -145,7 +147,9 @@
                         <TextBlock Text="{loc:Str Settings_SectionWindow}" FontSize="14" FontWeight="SemiBold" />
                         <StackPanel Spacing="6">
                             <TextBlock Classes="field" Text="{loc:Str Settings_CloseBehavior}" />
-                            <atom:ComboBox ItemsSource="{Binding CloseBehaviorOptions}"
+                            <atom:ComboBox x:Name="CloseBehaviorComboBox"
+                                           AutomationProperties.AutomationId="CloseBehaviorComboBox"
+                                           ItemsSource="{Binding CloseBehaviorOptions}"
                                            SelectedItem="{Binding SelectedCloseBehavior}"
                                            HorizontalAlignment="Stretch">
                                 <atom:ComboBox.ItemTemplate>
