@@ -278,6 +278,24 @@ public sealed class QuickAccessViewModelTests : IDisposable
         }
     });
 
+    [Fact]
+    public void HiddenOverlayDefersRefilteringUntilActivated()
+    {
+        var (vault, main) = CreateMain(
+            new PasswordEntry { Title = "GitHub", Username = "alice" });
+        using var _ = vault;
+        using var __ = main;
+        var viewModel = new QuickAccessViewModel(main) { SearchText = "git" };
+
+        // Prewarmed but not shown: changes only mark the filter dirty.
+        viewModel.SetActive(false);
+        main.Entries.Add(new PasswordEntry { Title = "GitLab", Username = "bob" });
+        Assert.Single(viewModel.FilteredEntries);
+
+        viewModel.SetActive(true);
+        Assert.Equal(2, viewModel.FilteredEntries.Count);
+    }
+
     private sealed class FakeUrlLauncher : IUrlLauncher
     {
         public List<string?> Opened { get; } = [];

@@ -49,6 +49,7 @@ public partial class App : Application
     private SecureConfigService? _configService;
     private TrayIcon? _trayIcon;
     private QuickAccessWindow? _quickAccess;
+    private bool _quickAccessPrewarmed;
     private FloatingBallWindow? _floatingBall;
     private HotKeyService? _hotKey;
     private readonly IAppRestarter _restarter = ProcessAppRestarter.Instance;
@@ -430,6 +431,11 @@ public partial class App : Application
 
         ApplyScreenGuard(window);
         UpdateFloatingBall();
+
+        // Deferred: the first hotkey press should not pay for the quick-access
+        // XAML load and native window creation, but the prewarm must not delay
+        // the main window's first frame either.
+        Dispatcher.UIThread.Post(PrewarmQuickAccess, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -570,6 +576,7 @@ public partial class App : Application
 
         _quickAccess?.Close();
         _quickAccess = null;
+        _quickAccessPrewarmed = false;
 
         _sessionWatcher?.Dispose();
         _sessionWatcher = null;
@@ -780,34 +787,66 @@ public partial class App : Application
 
         if (_quickAccess is null)
         {
-            var viewModel = new QuickAccessViewModel(_mainViewModel, _clipboard);
-            viewModel.EntryActivated += ShowMainWindow;
-            var quickAccess = new QuickAccessWindow { DataContext = viewModel };
-            quickAccess.Closed += (_, _) =>
-            {
-                viewModel.Dispose();
-
-                // The user may close it with Alt+F4; a closed Avalonia window
-                // cannot be shown again, so forget it and recreate on demand.
-                if (ReferenceEquals(_quickAccess, quickAccess))
-                {
-                    _quickAccess = null;
-                }
-            };
-            _quickAccess = quickAccess;
+            _quickAccess = CreateQuickAccess(new QuickAccessViewModel(_mainViewModel, _clipboard));
         }
 
         if (_quickAccess.IsVisible)
         {
+            SetQuickAccessActive(false);
             _quickAccess.Hide();
             _mainWindow.Activate();
             return;
         }
 
+        SetQuickAccessActive(true);
+        var openStartedAt = Stopwatch.GetTimestamp();
         _quickAccess.Show();
         _quickAccess.Activate();
         ApplyScreenGuard(_quickAccess);
+        StartupLog.Append($"quick access opened in {Stopwatch.GetElapsedTime(openStartedAt).TotalMilliseconds:0}ms (prewarmed: {_quickAccessPrewarmed})");
     }
+
+    private QuickAccessWindow CreateQuickAccess(QuickAccessViewModel viewModel)
+    {
+        viewModel.EntryActivated += ShowMainWindow;
+        var quickAccess = new QuickAccessWindow { DataContext = viewModel };
+        quickAccess.Closed += (_, _) =>
+        {
+            viewModel.Dispose();
+
+            // The user may close it with Alt+F4; a closed Avalonia window
+            // cannot be shown again, so forget it and recreate on demand.
+            if (ReferenceEquals(_quickAccess, quickAccess))
+            {
+                _quickAccess = null;
+                _quickAccessPrewarmed = false;
+            }
+        };
+        return quickAccess;
+    }
+
+    /// <summary>
+    /// Builds the quick-access window ahead of the first hotkey so XAML parsing
+    /// and native window creation are paid at unlock time instead. Deferred to
+    /// the background so it can never delay the main window's first frame.
+    /// </summary>
+    private void PrewarmQuickAccess()
+    {
+        if (_quickAccess is not null || _mainViewModel is null || _mainWindow is null)
+        {
+            return;
+        }
+
+        var startedAt = Stopwatch.GetTimestamp();
+        var quickAccess = CreateQuickAccess(new QuickAccessViewModel(_mainViewModel, _clipboard));
+        (quickAccess.DataContext as QuickAccessViewModel)?.SetActive(false);
+        _quickAccess = quickAccess;
+        _quickAccessPrewarmed = true;
+        StartupLog.Append($"quick access prewarmed in {Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:0}ms");
+    }
+
+    private void SetQuickAccessActive(bool active)
+        => (_quickAccess?.DataContext as QuickAccessViewModel)?.SetActive(active);
 
     private void UpdateFloatingBall()
     {

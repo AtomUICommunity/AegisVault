@@ -16,6 +16,8 @@ public partial class QuickAccessViewModel : ObservableObject, IDisposable
     private readonly MainViewModel _main;
     private readonly ClipboardService? _clipboard;
     private readonly IUrlLauncher _urlLauncher;
+    private bool _isActive = true;
+    private bool _filterDirty;
 
     /// <summary>Raised when the overlay should hide itself.</summary>
     public event Action? HideRequested;
@@ -127,10 +129,35 @@ public partial class QuickAccessViewModel : ObservableObject, IDisposable
         SelectedEntry = FilteredEntries[index];
     }
 
-    private void OnEntriesChanged(object? sender, NotifyCollectionChangedEventArgs e) => ApplyFilter();
+    private void OnEntriesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // While prewarmed-but-hidden, only mark the filter dirty: duplicating the
+        // main list's filtering on every change would be pure waste.
+        if (!_isActive)
+        {
+            _filterDirty = true;
+            return;
+        }
+
+        ApplyFilter();
+    }
+
+    /// <summary>
+    /// Tells the view model whether the overlay is on screen. <c>false</c>
+    /// suspends eager re-filtering until the next activation.
+    /// </summary>
+    public void SetActive(bool active)
+    {
+        _isActive = active;
+        if (active && _filterDirty)
+        {
+            ApplyFilter();
+        }
+    }
 
     private void ApplyFilter()
     {
+        _filterDirty = false;
         var query = SearchText?.Trim() ?? string.Empty;
         FilteredEntries.Clear();
         foreach (var entry in _main.Entries)
