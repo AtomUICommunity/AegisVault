@@ -299,6 +299,7 @@ internal static class EnStrings
         ["Settings_CloseBehaviorMinimize"] = "Minimize to tray",
         ["Settings_CloseBehaviorExit"] = "Exit",
         ["Settings_ShowFloatingBall"] = "Show floating ball (click to open quick access)",
+        ["Settings_ReduceMotion"] = "Reduce motion (disable interface animations and transitions)",
         ["Settings_StatusBackupFailed"] = "Backup failed.",
         ["Settings_StatusBackupSaved"] = "Backup saved.",
         ["Settings_StatusDeviceForgotten"] = "The device key was removed.",

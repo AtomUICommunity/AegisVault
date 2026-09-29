@@ -102,4 +102,19 @@ public sealed class SplashWindowTests
         Assert.False(window.IsVisible);
         return null;
     });
+
+    [Fact]
+    public Task ReducedMotionSkipsTheFadeAndTheProgressAnimation() => Headless.RunAsync<object?>(async () =>
+    {
+        var window = new SplashWindow("light", reduceMotion: true);
+        window.Show();
+
+        Assert.Null(window.Transitions);
+        Assert.Null(window.FindControl<ProgressBar>("Progress")!.Transitions);
+
+        await window.FadeOutAndCloseAsync();
+
+        Assert.False(window.IsVisible);
+        return null;
+    });
 }

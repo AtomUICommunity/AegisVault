@@ -135,6 +135,8 @@
                         </StackPanel>
                         <atom:CheckBox Content="{loc:Str Settings_ShowFloatingBall}"
                                        IsChecked="{Binding ShowFloatingBall, Mode=TwoWay}" />
+                        <atom:CheckBox Content="{loc:Str Settings_ReduceMotion}"
+                                       IsChecked="{Binding ReduceMotion, Mode=TwoWay}" />
                     </StackPanel>
                 </Border>
 

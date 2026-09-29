@@ -28,6 +28,12 @@ public sealed record AppPreferences
     /// <summary>Shows the optional floating quick-access ball (default off).</summary>
     public bool ShowFloatingBall { get; init; }
 
+    /// <summary>
+    /// Reduces motion: disables AtomUI control animations and the app's own
+    /// splash/ball transitions (default off).
+    /// </summary>
+    public bool ReduceMotion { get; init; }
+
     /// <summary>Starts with the OS session (Windows Run key; default off).</summary>
     public bool AutoStart { get; init; }
 

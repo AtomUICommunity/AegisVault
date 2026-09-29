@@ -24,6 +24,12 @@ public static class AppTheme
     private static readonly SemaphoreSlim ApplyGate = new(1, 1);
     private static int _applyRevision;
 
+    // Last appearance applied through ConfigureInitial/Apply. The motion token
+    // lives in the same theme configuration, so a change there must defeat the
+    // "redundant transition" early-out below.
+    private static bool? _appliedDark;
+    private static bool? _appliedReduceMotion;
+
     /// <summary>Ink Green suite, light appearance.</summary>
     private static readonly (string Key, string Value)[] LightTokens =
     [
@@ -78,7 +84,7 @@ public static class AppTheme
         return Colors.Gray;
     }
 
-    public static ThemeConfig BuildConfig(bool dark)
+    public static ThemeConfig BuildConfig(bool dark, bool reduceMotion = false)
     {
         var builder = new ThemeConfigBuilder()
             .WithAlgorithms(dark ? [ThemeAlgorithm.Dark] : [ThemeAlgorithm.Default]);
@@ -87,6 +93,10 @@ public static class AppTheme
         {
             builder.WithToken(key, value);
         }
+
+        // AtomUI keeps control motion behind this registered global token; it is
+        // the only app-wide switch (controls bind IsMotionEnabled to it).
+        builder.WithToken("EnableMotion", reduceMotion ? "false" : "true");
 
         return builder.Build();
     }
@@ -102,11 +112,16 @@ public static class AppTheme
         => Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == PlatformThemeVariant.Dark;
 
     /// <summary>Initial theme, applied during AtomUI initialization (before first render).</summary>
-    public static void ConfigureInitial(IAtomUIBuilder builder, string preference)
-        => builder.WithInitialTheme(ThemeId, BuildConfig(IsDarkPreference(preference)));
+    public static void ConfigureInitial(IAtomUIBuilder builder, string preference, bool reduceMotion = false)
+    {
+        var dark = IsDarkPreference(preference);
+        _appliedDark = dark;
+        _appliedReduceMotion = reduceMotion;
+        builder.WithInitialTheme(ThemeId, BuildConfig(dark, reduceMotion));
+    }
 
     /// <summary>Applies the preference to the Avalonia theme variant and to AtomUI.</summary>
-    public static void Apply(Application application, string preference)
+    public static void Apply(Application application, string preference, bool reduceMotion = false)
     {
         ArgumentNullException.ThrowIfNull(application);
 
@@ -126,15 +141,20 @@ public static class AppTheme
             }
 
             // Skip a redundant transition (e.g. startup, where WithInitialTheme
-            // already applied the same configuration).
+            // already applied the same configuration) unless the motion
+            // preference changed, which needs the theme re-applied to take effect.
             var desiredDark = IsDarkPreference(preference);
             var current = manager.CurrentTheme;
-            if (current is { ThemeId: ThemeId } && (current.Appearance == ThemeAppearance.Dark) == desiredDark)
+            if (current is { ThemeId: ThemeId }
+                && _appliedDark == desiredDark
+                && _appliedReduceMotion == reduceMotion)
             {
                 return;
             }
 
-            _ = ApplyQueuedAsync(manager, BuildConfig(desiredDark), Interlocked.Increment(ref _applyRevision));
+            _appliedDark = desiredDark;
+            _appliedReduceMotion = reduceMotion;
+            _ = ApplyQueuedAsync(manager, BuildConfig(desiredDark, reduceMotion), Interlocked.Increment(ref _applyRevision));
         }
         catch (Exception)
         {

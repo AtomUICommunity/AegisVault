@@ -129,4 +129,30 @@ public sealed class FloatingBallWindowTests
             window.Close();
         }
     });
+
+    [Fact]
+    public Task ReducedMotionDisablesTheEntranceAndIdleAnimations() => Headless.Run(() =>
+    {
+        var window = new FloatingBallWindow(reducedMotion: true);
+        try
+        {
+            window.Show();
+
+            var ball = window.FindControl<Border>("BallSurface");
+            var root = window.FindControl<Panel>("BallRoot");
+            Assert.NotNull(ball);
+            Assert.NotNull(root);
+
+            // BallRoot keeps a transition for the docking glide only when motion
+            // is enabled; here it must stay null.
+            Assert.Null(root!.Transitions);
+            Assert.Contains("reduced", ball!.Classes);
+            Assert.DoesNotContain("entering", ball.Classes);
+            Assert.DoesNotContain("breath", ball.Classes);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

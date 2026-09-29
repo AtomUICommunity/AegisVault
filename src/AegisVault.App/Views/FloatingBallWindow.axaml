@@ -53,6 +53,11 @@
             <Setter Property="RenderTransform" Value="scale(0.6)" />
         </Style>
 
+        <!-- Reduced motion: state changes snap instead of animating. -->
+        <Style Selector="Border.ball.reduced">
+            <Setter Property="Transitions" Value="{x:Null}" />
+        </Style>
+
         <!-- Icon follows the ball's hover with a slight pop. -->
         <Style Selector="Border.ball atom|Button.icon">
             <Setter Property="RenderTransformOrigin" Value="50%,50%" />
@@ -65,6 +70,9 @@
         </Style>
         <Style Selector="Border.ball:pointerover atom|Button.icon">
             <Setter Property="RenderTransform" Value="scale(1.12)" />
+        </Style>
+        <Style Selector="Border.ball.reduced atom|Button.icon">
+            <Setter Property="Transitions" Value="{x:Null}" />
         </Style>
 
         <!-- Rings live outside the ball's own transforms so the idle pulse cannot

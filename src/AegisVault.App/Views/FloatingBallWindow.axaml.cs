@@ -83,20 +83,40 @@ public partial class FloatingBallWindow : Window
     private bool _dragging;
     private bool _moved;
     private bool _revealed;
+    private readonly bool _reducedMotion;
     private string? _dockedSide;
     private DispatcherTimer? _pulseTimer;
     private DispatcherTimer? _breathTimer;
     private DateTime _revealGraceUntil;
 
     public FloatingBallWindow()
+        : this(reducedMotion: false)
+    {
+    }
+
+    public FloatingBallWindow(bool reducedMotion)
     {
         InitializeComponent();
-        BallRoot.Transitions = _clusterTransitions;
+
+        _reducedMotion = reducedMotion;
+        BallRoot.Transitions = reducedMotion ? null : _clusterTransitions;
+
+        if (reducedMotion)
+        {
+            BallSurface.Classes.Add("reduced");
+        }
     }
 
     protected override void OnOpened(EventArgs e)
     {
         base.OnOpened(e);
+
+        if (_reducedMotion)
+        {
+            // No entrance fade and no idle animation.
+            BallSurface.Classes.Remove("entering");
+            return;
+        }
 
         // Let the first frame lay out the "entering" state, then transition in.
         DispatcherTimer.RunOnce(
@@ -397,6 +417,12 @@ public partial class FloatingBallWindow : Window
     /// <summary>Instantly offsets the cluster, then animates the offset away.</summary>
     private void SlideCluster(int compensation)
     {
+        if (_reducedMotion)
+        {
+            BallRoot.RenderTransform = ClusterRest;
+            return;
+        }
+
         BallRoot.Transitions = null;
         BallRoot.RenderTransform = TransformOperations.Parse($"translate({compensation}px, 0px)");
         DispatcherTimer.RunOnce(
@@ -413,6 +439,11 @@ public partial class FloatingBallWindow : Window
     /// <summary>Two quick expanding rings on click (driven by Transitions).</summary>
     private void PlayRipple()
     {
+        if (_reducedMotion)
+        {
+            return;
+        }
+
         FireRipple();
         DispatcherTimer.RunOnce(FireRipple, TimeSpan.FromMilliseconds(150));
     }
@@ -438,6 +469,11 @@ public partial class FloatingBallWindow : Window
     /// <summary>Slow breathing ring while the ball is idle.</summary>
     private void StartPulse()
     {
+        if (_reducedMotion)
+        {
+            return;
+        }
+
         if (_pulseTimer is null)
         {
             _pulseTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.2) };
@@ -477,6 +513,11 @@ public partial class FloatingBallWindow : Window
     /// <summary>Slow breathing of the ball itself while it is idle.</summary>
     private void StartBreath()
     {
+        if (_reducedMotion)
+        {
+            return;
+        }
+
         if (_breathTimer is null)
         {
             _breathTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.6) };
@@ -508,6 +549,11 @@ public partial class FloatingBallWindow : Window
     /// <summary>Short overshoot after a click so the tap feels acknowledged.</summary>
     private void PlayBounce()
     {
+        if (_reducedMotion)
+        {
+            return;
+        }
+
         BallSurface.Classes.Add("bouncing");
         DispatcherTimer.RunOnce(
             () => BallSurface.Classes.Remove("bouncing"),

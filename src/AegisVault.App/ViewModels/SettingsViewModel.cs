@@ -33,6 +33,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly Func<bool, bool>? _applyAutoStart;
     private readonly Action<bool>? _applyStartMinimized;
     private readonly Action<string>? _applyCloseBehavior;
+    private readonly Action<bool>? _applyReduceMotion;
 
     public SettingsViewModel(
         VaultService vault,
@@ -53,7 +54,9 @@ public partial class SettingsViewModel : ObservableObject
         Func<bool, bool>? applyAutoStart = null,
         Action<bool>? applyStartMinimized = null,
         string closeBehavior = CloseActions.Ask,
-        Action<string>? applyCloseBehavior = null)
+        Action<string>? applyCloseBehavior = null,
+        bool reduceMotion = false,
+        Action<bool>? applyReduceMotion = null)
     {
         _vault = vault;
         _config = config;
@@ -66,6 +69,7 @@ public partial class SettingsViewModel : ObservableObject
         _applyAutoStart = applyAutoStart;
         _applyStartMinimized = applyStartMinimized;
         _applyCloseBehavior = applyCloseBehavior;
+        _applyReduceMotion = applyReduceMotion;
 
         var user = config.Current;
         SelectedAutoLock = AutoLockOptions.FirstOrDefault(option => option.Minutes == user.AutoLockMinutes) ?? AutoLockOptions[0];
@@ -86,6 +90,7 @@ public partial class SettingsViewModel : ObservableObject
         ScreenGuardSupported = screenGuardSupported;
         DisableScreenCapture = user.DisableScreenCapture;
         ShowFloatingBall = showFloatingBall;
+        ReduceMotion = reduceMotion;
 
         StartupSupported = startupSupported;
         AutoStart = autoStart;
@@ -165,6 +170,9 @@ public partial class SettingsViewModel : ObservableObject
     private bool showFloatingBall;
 
     [ObservableProperty]
+    private bool reduceMotion;
+
+    [ObservableProperty]
     private bool deviceKeySupported;
 
     [ObservableProperty]
@@ -226,6 +234,9 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // Motion must be persisted before the theme is re-applied: the flag
+        // rides in the same AtomUI theme configuration.
+        _applyReduceMotion?.Invoke(ReduceMotion);
         _applyTheme?.Invoke(SelectedTheme?.Value ?? "system");
         _applyScreenGuard?.Invoke(!DisableScreenCapture);
         _applyFloatingBall?.Invoke(ShowFloatingBall);

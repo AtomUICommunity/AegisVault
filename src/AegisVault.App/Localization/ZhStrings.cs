@@ -299,6 +299,7 @@ internal static class ZhStrings
         ["Settings_CloseBehaviorMinimize"] = "最小化到托盘",
         ["Settings_CloseBehaviorExit"] = "直接退出",
         ["Settings_ShowFloatingBall"] = "显示悬浮球（点击打开快速访问）",
+        ["Settings_ReduceMotion"] = "减少动效（关闭界面动画与过渡）",
         ["Settings_StatusBackupFailed"] = "备份失败。",
         ["Settings_StatusBackupSaved"] = "备份已保存。",
         ["Settings_StatusDeviceForgotten"] = "已移除此设备上的密钥。",

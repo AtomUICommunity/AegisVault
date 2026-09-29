@@ -20,6 +20,7 @@ public partial class SplashWindow : Window
     public const int FadeOutMilliseconds = 250;
 
     private readonly bool _dark;
+    private readonly bool _reduceMotion;
     private bool _fading;
 
     /// <summary>Parameterless overload for the XAML runtime loader.</summary>
@@ -28,32 +29,36 @@ public partial class SplashWindow : Window
     {
     }
 
-    public SplashWindow(string themePreference)
+    public SplashWindow(string themePreference, bool reduceMotion = false)
     {
         InitializeComponent();
 
         _dark = AppTheme.IsDarkPreference(themePreference);
+        _reduceMotion = reduceMotion;
         ApplyPalette();
 
-        Progress.Transitions =
-        [
-            new DoubleTransition
-            {
-                Property = ProgressBar.ValueProperty,
-                Duration = TimeSpan.FromMilliseconds(300),
-                Easing = new CubicEaseOut(),
-            },
-        ];
+        if (!reduceMotion)
+        {
+            Progress.Transitions =
+            [
+                new DoubleTransition
+                {
+                    Property = ProgressBar.ValueProperty,
+                    Duration = TimeSpan.FromMilliseconds(300),
+                    Easing = new CubicEaseOut(),
+                },
+            ];
 
-        Transitions =
-        [
-            new DoubleTransition
-            {
-                Property = OpacityProperty,
-                Duration = TimeSpan.FromMilliseconds(FadeOutMilliseconds),
-                Easing = new CubicEaseOut(),
-            },
-        ];
+            Transitions =
+            [
+                new DoubleTransition
+                {
+                    Property = OpacityProperty,
+                    Duration = TimeSpan.FromMilliseconds(FadeOutMilliseconds),
+                    Easing = new CubicEaseOut(),
+                },
+            ];
+        }
     }
 
     /// <summary>Updates the status line and the determinate progress (0..1).</summary>
@@ -73,7 +78,12 @@ public partial class SplashWindow : Window
 
         _fading = true;
         Opacity = 0;
-        await Task.Delay(FadeOutMilliseconds);
+
+        if (!_reduceMotion)
+        {
+            await Task.Delay(FadeOutMilliseconds);
+        }
+
         Close();
     }
 

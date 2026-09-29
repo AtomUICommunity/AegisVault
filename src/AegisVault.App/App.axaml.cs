@@ -115,7 +115,7 @@ public partial class App : Application
     /// </summary>
     private async Task StartAsync(IClassicDesktopStyleApplicationLifetime desktop)
     {
-        var splash = new SplashWindow(_preferences.Theme);
+        var splash = new SplashWindow(_preferences.Theme, _preferences.ReduceMotion);
         _splash = splash;
         var splashShownAt = Stopwatch.GetTimestamp();
         var startupClock = Stopwatch.StartNew();
@@ -820,7 +820,7 @@ public partial class App : Application
 
         if (_floatingBall is null)
         {
-            var ball = new FloatingBallWindow();
+            var ball = new FloatingBallWindow(_preferences.ReduceMotion);
             ball.BallClicked += ToggleQuickAccess;
             ball.PlacementChanged += OnBallPlacementChanged;
             ball.Closed += (_, _) =>
@@ -971,6 +971,22 @@ public partial class App : Application
                 _preferences = _preferences with { ShowFloatingBall = show };
                 SavePreferences();
                 UpdateFloatingBall();
+            },
+            reduceMotion: _preferences.ReduceMotion,
+            applyReduceMotion: reduce =>
+            {
+                _preferences = _preferences with { ReduceMotion = reduce };
+                SavePreferences();
+
+                // The ball builds its motion graph in the constructor, so rebuild
+                // it to reflect the new preference (the settings Save() re-applies
+                // the theme right after this).
+                if (_floatingBall is not null)
+                {
+                    _floatingBall.Close();
+                    _floatingBall = null;
+                    UpdateFloatingBall();
+                }
             },
             imported: () => _mainViewModel?.ReloadFromVault(),
             currentLanguage: _preferences.Language,
@@ -1127,5 +1143,5 @@ public partial class App : Application
         }
     }
 
-    private void ApplyThemeVariant(string theme) => AppTheme.Apply(this, theme);
+    private void ApplyThemeVariant(string theme) => AppTheme.Apply(this, theme, _preferences.ReduceMotion);
 }
