@@ -578,7 +578,7 @@
 
                     <Border Grid.Column="1" Background="{DynamicResource AegisHairlineBrush}" />
 
-                    <Panel Grid.Column="2" Margin="26,16,12,18">
+                    <Grid Grid.Column="2" Margin="26,16,12,18" RowDefinitions="*,Auto">
                         <!-- Empty vault: welcome hero with the first-run CTA. -->
                         <StackPanel HorizontalAlignment="Center"
                                     VerticalAlignment="Center"
@@ -1026,32 +1026,6 @@
                                                Opacity="0.6"
                                                Margin="0,14,0,0"
                                                IsVisible="{Binding IsViewRecycleBin}" />
-
-                                    <StackPanel Orientation="Horizontal"
-                                                Spacing="8"
-                                                HorizontalAlignment="Right"
-                                                Margin="0,14,0,0">
-                                        <atom:Button ButtonType="Primary"
-                                                     IsVisible="{Binding !IsViewRecycleBin}"
-                                                     Icon="{antd:AntDesignIconProvider EditOutlined}"
-                                                     Content="{loc:Str Common_Edit}"
-                                                     Command="{Binding BeginEditCommand}" />
-                                        <atom:Button ButtonType="Default"
-                                                     IsVisible="{Binding !IsViewRecycleBin}"
-                                                     Icon="{antd:AntDesignIconProvider DeleteOutlined}"
-                                                     Content="{loc:Str Common_Delete}"
-                                                     Click="OnDeleteEntryClicked" />
-                                        <atom:Button ButtonType="Primary"
-                                                     IsVisible="{Binding IsViewRecycleBin}"
-                                                     Icon="{antd:AntDesignIconProvider UndoOutlined}"
-                                                     Content="{loc:Str Main_RestoreEntry}"
-                                                     Command="{Binding RestoreSelectedEntryCommand}" />
-                                        <atom:Button ButtonType="Default"
-                                                     IsVisible="{Binding IsViewRecycleBin}"
-                                                     Icon="{antd:AntDesignIconProvider DeleteOutlined}"
-                                                     Content="{loc:Str Main_DeleteForever}"
-                                                     Click="OnPurgeEntryClicked" />
-                                    </StackPanel>
                                 </StackPanel>
 
                                 <!-- Editor -->
@@ -1199,23 +1173,61 @@
 
                                     <atom:CheckBox Content="{loc:Str Main_Favorite}"
                                                    IsChecked="{Binding EditIsFavorite, Mode=TwoWay}" />
-
-                                    <StackPanel Orientation="Horizontal"
-                                                Spacing="8"
-                                                HorizontalAlignment="Right"
-                                                Margin="0,2,0,0">
-                                        <atom:Button ButtonType="Default"
-                                                     Content="{loc:Str Common_Cancel}"
-                                                     Command="{Binding CancelEditCommand}" />
-                                        <atom:Button ButtonType="Primary"
-                                                     Icon="{antd:AntDesignIconProvider CheckOutlined}"
-                                                     Content="{loc:Str Common_Save}"
-                                                     Command="{Binding SaveEntryCommand}" />
-                                    </StackPanel>
                                 </StackPanel>
                             </Grid>
                         </ScrollViewer>
-                    </Panel>
+
+                        <!-- Sticky action bar: pinned below the scroll region so
+                             Save/Cancel stay reachable without scrolling to the end. -->
+                        <Border Grid.Row="1"
+                                x:Name="DetailActionBar"
+                                IsVisible="{Binding HasSelection}"
+                                Margin="0,0,16,0"
+                                BorderThickness="0,1,0,0"
+                                BorderBrush="{atom:SharedTokenResource ColorBorderSecondary}"
+                                Background="{atom:SharedTokenResource ColorBgContainer}"
+                                Padding="0,10,0,0">
+                            <Panel>
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="8"
+                                            HorizontalAlignment="Right"
+                                            IsVisible="{Binding !IsEditing}">
+                                    <atom:Button ButtonType="Primary"
+                                                 IsVisible="{Binding !IsViewRecycleBin}"
+                                                 Icon="{antd:AntDesignIconProvider EditOutlined}"
+                                                 Content="{loc:Str Common_Edit}"
+                                                 Command="{Binding BeginEditCommand}" />
+                                    <atom:Button ButtonType="Default"
+                                                 IsVisible="{Binding !IsViewRecycleBin}"
+                                                 Icon="{antd:AntDesignIconProvider DeleteOutlined}"
+                                                 Content="{loc:Str Common_Delete}"
+                                                 Click="OnDeleteEntryClicked" />
+                                    <atom:Button ButtonType="Primary"
+                                                 IsVisible="{Binding IsViewRecycleBin}"
+                                                 Icon="{antd:AntDesignIconProvider UndoOutlined}"
+                                                 Content="{loc:Str Main_RestoreEntry}"
+                                                 Command="{Binding RestoreSelectedEntryCommand}" />
+                                    <atom:Button ButtonType="Default"
+                                                 IsVisible="{Binding IsViewRecycleBin}"
+                                                 Icon="{antd:AntDesignIconProvider DeleteOutlined}"
+                                                 Content="{loc:Str Main_DeleteForever}"
+                                                 Click="OnPurgeEntryClicked" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="8"
+                                            HorizontalAlignment="Right"
+                                            IsVisible="{Binding IsEditing}">
+                                    <atom:Button ButtonType="Default"
+                                                 Content="{loc:Str Common_Cancel}"
+                                                 Command="{Binding CancelEditCommand}" />
+                                    <atom:Button ButtonType="Primary"
+                                                 Icon="{antd:AntDesignIconProvider CheckOutlined}"
+                                                 Content="{loc:Str Common_Save}"
+                                                 Command="{Binding SaveEntryCommand}" />
+                                </StackPanel>
+                            </Panel>
+                        </Border>
+                    </Grid>
                 </Grid>
             </Grid>
             </Border>

@@ -159,6 +159,19 @@ public sealed class MainWindowTests
     });
 
     [Fact]
+    public Task DetailActionBarIsPinnedOutsideTheScrollingRegion() => Headless.Run(() =>
+    {
+        // UX-3: the detail action bar (Cancel/Save, Edit/Delete) sits in its own
+        // grid row below the ScrollViewer so it stays reachable without scrolling.
+        var window = new MainWindow();
+
+        var bar = window.FindControl<Border>("DetailActionBar");
+
+        Assert.NotNull(bar);
+        Assert.DoesNotContain(bar!.GetVisualAncestors(), ancestor => ancestor is ScrollViewer);
+    });
+
+    [Fact]
     public Task TotpSeedEditorIsMaskedUntilRevealed() => Headless.Run(() =>
     {
         var window = new MainWindow();
