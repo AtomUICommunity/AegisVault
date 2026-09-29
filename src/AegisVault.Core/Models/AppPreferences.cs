@@ -34,6 +34,12 @@ public sealed record AppPreferences
     /// <summary>Starts hidden in the tray instead of showing the main window.</summary>
     public bool StartMinimized { get; init; }
 
+    /// <summary>
+    /// "ask" | "minimize" | "exit": what closing the main window does. Unknown
+    /// values are normalised to "ask" by the store; see <see cref="CloseActions"/>.
+    /// </summary>
+    public string CloseAction { get; init; } = CloseActions.Ask;
+
     /// <summary>Floating ball position in screen pixels ("x,y"); null when never moved.</summary>
     public string? BallPosition { get; init; }
 

@@ -18,6 +18,8 @@ public sealed record ThemeOption(string Value, string Label);
 
 public sealed record LanguageOption(string Value, string Label);
 
+public sealed record CloseBehaviorOption(string Value, string Label);
+
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly VaultService _vault;
@@ -30,6 +32,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly Action? _imported;
     private readonly Func<bool, bool>? _applyAutoStart;
     private readonly Action<bool>? _applyStartMinimized;
+    private readonly Action<string>? _applyCloseBehavior;
 
     public SettingsViewModel(
         VaultService vault,
@@ -48,7 +51,9 @@ public partial class SettingsViewModel : ObservableObject
         bool autoStart = false,
         bool startMinimized = false,
         Func<bool, bool>? applyAutoStart = null,
-        Action<bool>? applyStartMinimized = null)
+        Action<bool>? applyStartMinimized = null,
+        string closeBehavior = CloseActions.Ask,
+        Action<string>? applyCloseBehavior = null)
     {
         _vault = vault;
         _config = config;
@@ -60,6 +65,7 @@ public partial class SettingsViewModel : ObservableObject
         _imported = imported;
         _applyAutoStart = applyAutoStart;
         _applyStartMinimized = applyStartMinimized;
+        _applyCloseBehavior = applyCloseBehavior;
 
         var user = config.Current;
         SelectedAutoLock = AutoLockOptions.FirstOrDefault(option => option.Minutes == user.AutoLockMinutes) ?? AutoLockOptions[0];
@@ -72,6 +78,7 @@ public partial class SettingsViewModel : ObservableObject
         GeneratorExcludeAmbiguous = user.Generator.ExcludeAmbiguous;
         SelectedTheme = ThemeOptions.FirstOrDefault(option => option.Value == currentTheme) ?? ThemeOptions[0];
         SelectedLanguage = LanguageOptions.FirstOrDefault(option => option.Value == currentLanguage) ?? LanguageOptions[0];
+        SelectedCloseBehavior = CloseBehaviorOptions.FirstOrDefault(option => option.Value == closeBehavior) ?? CloseBehaviorOptions[0];
 
         DeviceKeySupported = protector?.IsAvailable == true;
         HasDeviceKey = DeviceKeySupported && vault.HasDeviceKey(protector!);
@@ -108,6 +115,11 @@ public partial class SettingsViewModel : ObservableObject
         [new(Loc.System, Loc.T("Settings_LanguageSystem")),
          new(Loc.Chinese, Loc.T("Settings_LanguageZh")),
          new(Loc.English, Loc.T("Settings_LanguageEn"))];
+
+    public IReadOnlyList<CloseBehaviorOption> CloseBehaviorOptions { get; } =
+        [new(CloseActions.Ask, Loc.T("Settings_CloseBehaviorAsk")),
+         new(CloseActions.Minimize, Loc.T("Settings_CloseBehaviorMinimize")),
+         new(CloseActions.Exit, Loc.T("Settings_CloseBehaviorExit"))];
 
     [ObservableProperty]
     private AutoLockOption? selectedAutoLock;
@@ -163,6 +175,9 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool startMinimized;
+
+    [ObservableProperty]
+    private CloseBehaviorOption? selectedCloseBehavior;
 
     [ObservableProperty]
     private bool hasDeviceKey;
@@ -226,6 +241,7 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         _applyStartMinimized?.Invoke(StartMinimized);
+        _applyCloseBehavior?.Invoke(SelectedCloseBehavior?.Value ?? CloseActions.Ask);
         StatusMessage = Loc.T("Settings_StatusSaved");
     }
 

@@ -138,6 +138,24 @@
                     </StackPanel>
                 </Border>
 
+                <Border Classes="card" Padding="18,16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="{loc:Str Settings_SectionWindow}" FontSize="14" FontWeight="SemiBold" />
+                        <StackPanel Spacing="6">
+                            <TextBlock Classes="field" Text="{loc:Str Settings_CloseBehavior}" />
+                            <atom:ComboBox ItemsSource="{Binding CloseBehaviorOptions}"
+                                           SelectedItem="{Binding SelectedCloseBehavior}"
+                                           HorizontalAlignment="Stretch">
+                                <atom:ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="vm:CloseBehaviorOption">
+                                        <TextBlock Text="{Binding Label}" />
+                                    </DataTemplate>
+                                </atom:ComboBox.ItemTemplate>
+                            </atom:ComboBox>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <Border Classes="card" Padding="18,16" IsVisible="{Binding StartupSupported}">
                     <StackPanel Spacing="12">
                         <TextBlock Text="{loc:Str Settings_SectionStartup}" FontSize="14" FontWeight="SemiBold" />

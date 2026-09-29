@@ -149,7 +149,15 @@ public partial class MainWindow : Window
         }
 
         _clipboardCleanupAttached = true;
-        Closing += (_, _) => _clipboard?.Dispose();
+        Closing += (_, args) =>
+        {
+            // A cancelled close (the user chose "minimize to tray") keeps the
+            // session alive, so the clipboard service must survive with it.
+            if (!args.Cancel)
+            {
+                _clipboard?.Dispose();
+            }
+        };
     }
 
     protected override void OnKeyDown(KeyEventArgs e)

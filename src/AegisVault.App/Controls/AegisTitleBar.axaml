@@ -59,6 +59,7 @@
                              Click="OnMaximizeClicked" />
                 <atom:Button Classes="caption close"
                              ButtonType="Text"
+                             AutomationProperties.AutomationId="TitleBarCloseButton"
                              Icon="{antd:AntDesignIconProvider CloseOutlined}"
                              Click="OnCloseClicked" />
             </StackPanel>

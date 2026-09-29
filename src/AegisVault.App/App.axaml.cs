@@ -56,6 +56,8 @@ public partial class App : Application
     private bool _unlockDialogOpen;
     private bool _exiting;
     private bool _restarting;
+    private bool _suppressCloseConfirm;
+    private bool _closePromptOpen;
     private bool _startMinimizedOnLaunch;
     private bool _startMinimizedConsumed;
     private SettingsWindow? _settingsWindow;
@@ -366,6 +368,7 @@ public partial class App : Application
                 (int)args.NewSize.Width,
                 (int)args.NewSize.Height);
             window.Closing += (_, _) => SaveMainWindowPlacement(window);
+            window.Closing += OnMainWindowClosing;
             window.PropertyChanged += (_, change) =>
             {
                 if (change.Property == Avalonia.Controls.Window.WindowStateProperty)
@@ -604,6 +607,88 @@ public partial class App : Application
         _mainWindow.Show();
         _mainWindow.WindowState = WindowState.Normal;
         _mainWindow.Activate();
+    }
+
+    /// <summary>
+    /// Decides what closing the main window does: exit immediately, hide to the
+    /// tray, or ask. Runs before the window's own clipboard cleanup, so a
+    /// cancelled close (minimize/ask) keeps the live session intact.
+    /// </summary>
+    private void OnMainWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (sender is not Avalonia.Controls.Window window || _exiting || _suppressCloseConfirm)
+        {
+            return;
+        }
+
+        switch (CloseActions.Normalize(_preferences.CloseAction))
+        {
+            case CloseActions.Exit:
+                return;
+
+            case CloseActions.Minimize:
+                e.Cancel = true;
+                MinimizeMainWindowToTray(window);
+                return;
+
+            default:
+                e.Cancel = true;
+                _ = ObserveDialogAsync(PromptCloseAsync(window));
+                return;
+        }
+    }
+
+    private async Task PromptCloseAsync(Avalonia.Controls.Window window)
+    {
+        if (_closePromptOpen)
+        {
+            return;
+        }
+
+        _closePromptOpen = true;
+        try
+        {
+            var dialog = new CloseConfirmWindow(
+                Loc.T("Main_CloseConfirmTitle"),
+                Loc.T("Main_CloseConfirmMessage"));
+
+            var result = await dialog.ShowDialog<ClosePromptResult>(window);
+            if (result == ClosePromptResult.Cancel)
+            {
+                return;
+            }
+
+            if (dialog.DontAskAgain)
+            {
+                _preferences = _preferences with
+                {
+                    CloseAction = result == ClosePromptResult.Exit ? CloseActions.Exit : CloseActions.Minimize,
+                };
+                SavePreferences();
+            }
+
+            if (result == ClosePromptResult.Exit)
+            {
+                // Let the second close request through untouched.
+                _suppressCloseConfirm = true;
+                window.Close();
+            }
+            else
+            {
+                MinimizeMainWindowToTray(window);
+            }
+        }
+        finally
+        {
+            _closePromptOpen = false;
+        }
+    }
+
+    private static void MinimizeMainWindowToTray(Avalonia.Controls.Window window)
+    {
+        // Route through WindowState: the main window's own handler hides it to
+        // the tray and lets the existing "lock on minimize" policy apply.
+        window.WindowState = WindowState.Minimized;
     }
 
     private void OnTrayClicked(object? sender, EventArgs e) => ShowMainWindow();
@@ -913,6 +998,12 @@ public partial class App : Application
             applyStartMinimized: minimized =>
             {
                 _preferences = _preferences with { StartMinimized = minimized };
+                SavePreferences();
+            },
+            closeBehavior: _preferences.CloseAction,
+            applyCloseBehavior: behavior =>
+            {
+                _preferences = _preferences with { CloseAction = CloseActions.Normalize(behavior) };
                 SavePreferences();
             });
         var window = new SettingsWindow { DataContext = viewModel };

@@ -179,4 +179,28 @@ public sealed class AppPreferencesStoreTests : IDisposable
         Assert.True(new AppPreferencesStore(path).Load().StartupGuideDismissed);
         Assert.False(new AppPreferencesStore(Path.Combine(_directory, "other.json")).Load().StartupGuideDismissed);
     }
+
+    [Fact]
+    public void CloseActionRoundTripsKnownValues()
+    {
+        var path = Path.Combine(_directory, "app.json");
+
+        new AppPreferencesStore(path).Save(new AppPreferences { CloseAction = CloseActions.Exit });
+        Assert.Equal(CloseActions.Exit, new AppPreferencesStore(path).Load().CloseAction);
+
+        new AppPreferencesStore(path).Save(new AppPreferences { CloseAction = CloseActions.Minimize });
+        Assert.Equal(CloseActions.Minimize, new AppPreferencesStore(path).Load().CloseAction);
+    }
+
+    [Fact]
+    public void UnknownOrMissingCloseActionLoadsAsAsk()
+    {
+        var legacy = Path.Combine(_directory, "legacy.json");
+        File.WriteAllText(legacy, """{"Theme":"dark"}""");
+        Assert.Equal(CloseActions.Ask, new AppPreferencesStore(legacy).Load().CloseAction);
+
+        var bogus = Path.Combine(_directory, "bogus.json");
+        File.WriteAllText(bogus, """{"CloseAction":"shutdown"}""");
+        Assert.Equal(CloseActions.Ask, new AppPreferencesStore(bogus).Load().CloseAction);
+    }
 }
