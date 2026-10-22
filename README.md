@@ -2,14 +2,14 @@
 
 **本地优先、零知识的跨平台密码管理器** — 基于 .NET 10 + Avalonia UI 构建，以金融级加密保护你的数字资产。
 
-[![CI](https://github.com/iamartinlong/AegisVault/actions/workflows/ci.yml/badge.svg)](https://github.com/iamartinlong/AegisVault/actions/workflows/ci.yml)
+[![CI](https://github.com/AtomUICommunity/AegisVault/actions/workflows/ci.yml/badge.svg)](https://github.com/AtomUICommunity/AegisVault/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 ![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)
 ![Avalonia](https://img.shields.io/badge/Avalonia-12.1-8A2BE2)
 
 ## 下载
 
-到 **[Releases](https://github.com/iamartinlong/AegisVault/releases/latest)** 获取最新构建：
+到 **[Releases](https://github.com/AtomUICommunity/AegisVault/releases/latest)** 获取最新构建：
 
 | 平台 | 文件（`<版本>` 为 tag 名，如 `v0.5.0`） |
 |---|---|

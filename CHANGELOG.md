@@ -184,6 +184,6 @@ AegisVault（玄钥）每个发布版本的用户可见变更。格式遵循 [Ke
 - 平台能力：托盘、热键、防截屏、剪贴板策略、单实例基础、核心转储防护。
 - CI 与 NativeAOT 发布工作流、第三方许可证清单（GPL-3.0 / LGPL-3.0 合规）。
 
-[v0.3.0]: https://github.com/iamartinlong/AegisVault/compare/v0.2.0...v0.3.0
-[v0.2.0]: https://github.com/iamartinlong/AegisVault/compare/v0.1.0...v0.2.0
-[v0.1.0]: https://github.com/iamartinlong/AegisVault/releases/tag/v0.1.0
+[v0.3.0]: https://github.com/AtomUICommunity/AegisVault/compare/v0.2.0...v0.3.0
+[v0.2.0]: https://github.com/AtomUICommunity/AegisVault/compare/v0.1.0...v0.2.0
+[v0.1.0]: https://github.com/AtomUICommunity/AegisVault/releases/tag/v0.1.0
