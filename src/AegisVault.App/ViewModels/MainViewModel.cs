@@ -366,6 +366,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string createdAtDisplay = string.Empty;
 
+    /// <summary>
+    /// "Last changed: N days ago" for the selected entry (ROT-1a). Derived from
+    /// <see cref="PasswordEntry.UpdatedAt"/>; no payload field is added.
+    /// </summary>
+    [ObservableProperty]
+    private string passwordAgeDisplay = string.Empty;
+
+    /// <summary>Superseded passwords for the selected entry, newest first.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<PasswordHistoryItem> passwordHistory = [];
+
+    /// <summary>True when the selected entry has any retained history.</summary>
+    [ObservableProperty]
+    private bool hasPasswordHistory;
+
     [ObservableProperty]
     private string totpCode = string.Empty;
 
@@ -1028,6 +1043,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private async Task CopyHistoryPasswordAsync(PasswordHistoryItem? item)
+    {
+        if (_clipboard is null || item is null || string.IsNullOrEmpty(item.Password))
+        {
+            return;
+        }
+
+        // Same clipboard policy as the live password: auto-clear + history exclusion.
+        await _clipboard.CopyAsync(item.Password);
+        StatusMessage = Loc.T("Main_StatusHistoryPasswordCopied");
+    }
+
+    [RelayCommand]
     private async Task CopyUsernameAsync()
     {
         if (_clipboard is null || string.IsNullOrEmpty(EditUsername))
@@ -1071,6 +1099,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             StatusMessage = Loc.T("Main_StatusUrlOpenFailed");
         }
+    }
+
+    /// <summary>
+    /// ROT-1a guidance: open the site so the user can change the password there,
+    /// then paste the new value back here (saving it records the old one).
+    /// </summary>
+    [RelayCommand]
+    private void StartRotation()
+    {
+        if (SelectedEntry is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(SelectedEntry.Url))
+        {
+            OpenUrl(SelectedEntry.Url);
+        }
+
+        StatusMessage = Loc.T("Main_StatusRotationStarted");
     }
 
     [RelayCommand]
@@ -1824,6 +1872,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Human-readable age of the password ("N 天前"/"today"). Uses the injected
+    /// clock so the label is testable and matches the health analysis.
+    /// </summary>
+    private string FormatPasswordAge(DateTimeOffset updatedAt)
+    {
+        var days = (int)Math.Floor((_timeProvider.GetUtcNow() - updatedAt).TotalDays);
+        if (days <= 0)
+        {
+            return Loc.T("Main_PasswordAgeToday");
+        }
+
+        return days == 1
+            ? Loc.T("Main_PasswordAgeYesterday")
+            : Loc.Format("Main_PasswordAgeDays", days);
+    }
+
     private void ApplyFilter()
     {
         if (_loadingEditor)
@@ -1974,7 +2039,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             CreatedAtDisplay = entry is null
                 ? string.Empty
                 : entry.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-            StatusMessage = null;
+            PasswordAgeDisplay = entry is null
+                ? string.Empty
+                : FormatPasswordAge(entry.UpdatedAt);
+            PasswordHistory = entry?.PasswordHistory ?? [];
+            HasPasswordHistory = PasswordHistory.Count > 0;            StatusMessage = null;
         }
         finally
         {

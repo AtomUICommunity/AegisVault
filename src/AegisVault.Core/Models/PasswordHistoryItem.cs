@@ -10,4 +10,8 @@ public sealed record PasswordHistoryItem
 
     /// <summary>When this value was replaced, in UTC.</summary>
     public DateTimeOffset ChangedAt { get; init; }
+
+    /// <summary>Local date for the UI; not persisted (see the JsonIgnore below).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ChangedAtDisplay => ChangedAt.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 }

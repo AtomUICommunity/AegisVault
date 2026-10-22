@@ -1011,6 +1011,62 @@
                                         </Grid>
                                     </Border>
 
+                                    <!-- ROT-1a: password age + rotation guidance. -->
+                                    <Border BorderBrush="{DynamicResource AegisHairlineBrush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="0,10"
+                                            IsVisible="{Binding PasswordAgeDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <Grid ColumnDefinitions="96,*,Auto">
+                                            <TextBlock Grid.Column="0" Classes="field" Text="{loc:Str Main_PasswordAge}" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding PasswordAgeDisplay}"
+                                                       VerticalAlignment="Center"
+                                                       TextWrapping="Wrap" />
+                                            <atom:Button Grid.Column="2"
+                                                         ButtonType="Link"
+                                                         AutomationProperties.AutomationId="RotatePasswordButton"
+                                                         Content="{loc:Str Main_RotatePassword}"
+                                                         Command="{Binding StartRotationCommand}"
+                                                         IsVisible="{Binding !IsViewRecycleBin}" />
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- ROT-1b: superseded passwords (encrypted payload). -->
+                                    <StackPanel Spacing="6"
+                                                Margin="0,10,0,0"
+                                                IsVisible="{Binding HasPasswordHistory}">
+                                        <TextBlock Classes="field" Text="{loc:Str Main_PasswordHistory}" />
+                                        <ItemsControl AutomationProperties.AutomationId="PasswordHistoryList"
+                                                      ItemsSource="{Binding PasswordHistory}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="models:PasswordHistoryItem">
+                                                    <Border BorderBrush="{DynamicResource AegisHairlineBrush}"
+                                                            BorderThickness="0,0,0,1"
+                                                            Padding="0,6">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <TextBlock Grid.Column="0"
+                                                                       Text="{Binding ChangedAtDisplay}"
+                                                                       Opacity="0.65"
+                                                                       FontSize="12"
+                                                                       VerticalAlignment="Center" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="••••••••"
+                                                                       Opacity="0.5"
+                                                                       Margin="12,0"
+                                                                       VerticalAlignment="Center" />
+                                                            <atom:Button Grid.Column="2"
+                                                                         ButtonType="Link"
+                                                                         Icon="{antd:AntDesignIconProvider CopyOutlined}"
+                                                                         ToolTip.Tip="{loc:Str Main_CopyHistoryPassword}"
+                                                                         Command="{Binding $parent[ItemsControl].((vm:MainViewModel)DataContext).CopyHistoryPasswordCommand}"
+                                                                         CommandParameter="{Binding}" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+
                                     <Border BorderBrush="{DynamicResource AegisHairlineBrush}" BorderThickness="0,0,0,1" Padding="0,10">
                                         <Grid ColumnDefinitions="96,*,Auto">
                                             <TextBlock Grid.Column="0" Classes="field" Text="{loc:Str Main_Notes}" />
