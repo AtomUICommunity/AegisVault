@@ -57,7 +57,7 @@ public partial class App : Application
     private FloatingBallWindow? _floatingBall;
     private HotKeyService? _hotKey;
     private readonly IAppRestarter _restarter = ProcessAppRestarter.Instance;
-    private readonly IStartupRegistration _startupRegistration = new WindowsStartupRegistration();
+    private readonly IStartupRegistration _startupRegistration = StartupRegistrationFactory.Create();
     private bool _unlockDialogOpen;
     private bool _exiting;
     private bool _restarting;

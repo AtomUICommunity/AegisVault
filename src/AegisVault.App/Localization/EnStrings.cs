@@ -322,6 +322,7 @@ internal static class EnStrings
         ["Settings_AutoStart"] = "Start automatically at sign-in",
         ["Settings_StartMinimized"] = "Start minimized to the tray",
         ["Settings_StartupHint"] = "Waits in the tray after sign-in; pairs with “Remember this device” for password-less unlock.",
+        ["Settings_StartupUnsupported"] = "This system has no in-app auto-start; please add it manually.",
         ["Settings_CloseBehavior"] = "When closing the window",
         ["Settings_CloseBehaviorAsk"] = "Ask every time",
         ["Settings_CloseBehaviorMinimize"] = "Minimize to tray",

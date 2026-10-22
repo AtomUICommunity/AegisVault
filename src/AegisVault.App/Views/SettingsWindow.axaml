@@ -224,14 +224,21 @@
                     </StackPanel>
                 </Border>
 
-                <Border Classes="card" Padding="18,16" IsVisible="{Binding StartupSupported}">
+                <Border Classes="card" Padding="18,16">
                     <StackPanel Spacing="12">
                         <TextBlock Text="{loc:Str Settings_SectionStartup}" FontSize="14" FontWeight="SemiBold" />
                         <atom:CheckBox x:Name="AutoStartCheckBox"
                                        Content="{loc:Str Settings_AutoStart}"
-                                       IsChecked="{Binding AutoStart, Mode=TwoWay}" />
+                                       IsChecked="{Binding AutoStart, Mode=TwoWay}"
+                                       IsEnabled="{Binding StartupSupported}" />
+                        <TextBlock Text="{loc:Str Settings_StartupUnsupported}"
+                                   FontSize="12"
+                                   Opacity="0.6"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding !StartupSupported}" />
                         <atom:CheckBox Content="{loc:Str Settings_StartMinimized}"
-                                       IsChecked="{Binding StartMinimized, Mode=TwoWay}" />
+                                       IsChecked="{Binding StartMinimized, Mode=TwoWay}"
+                                       IsEnabled="{Binding StartupSupported}" />
                         <TextBlock Text="{loc:Str Settings_StartupHint}" FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>

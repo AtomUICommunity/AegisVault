@@ -322,6 +322,7 @@ internal static class ZhStrings
         ["Settings_AutoStart"] = "开机时自动启动",
         ["Settings_StartMinimized"] = "启动后最小化到托盘",
         ["Settings_StartupHint"] = "登录后自动在托盘待命；配合「记住此设备」可免密进入。",
+        ["Settings_StartupUnsupported"] = "当前系统不支持应用内注册开机启动，请手动添加。",
         ["Settings_CloseBehavior"] = "关闭窗口时",
         ["Settings_CloseBehaviorAsk"] = "每次询问",
         ["Settings_CloseBehaviorMinimize"] = "最小化到托盘",
