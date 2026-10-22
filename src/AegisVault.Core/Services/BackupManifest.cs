@@ -40,7 +40,7 @@ public sealed record BackupResult(bool Success, string? ArtifactPath, string? Fa
 {
     public static BackupResult Ok(string path) => new(true, path, null, null);
 
-    public static BackupResult Failed(string code, string message) => new(false, null, code, message);
+    public static BackupResult Failed(string code, string? message = null) => new(false, null, code, message);
 }
 
 /// <summary>Why a backup was skipped (not an error).</summary>
