@@ -44,9 +44,16 @@ internal static class ModelMigrations
         // payloads lack them, so they deserialize as null ("live"/"never
         // opened"); the branch is written out explicitly because the migration
         // rules forbid relying on implicit behaviour.
+        // v5 -> v6: added PasswordHistory (nullable). Older payloads have no
+        // history to backfill, so it normalises to an empty list.
         if (fromVersion < 5)
         {
             entry = entry with { DeletedAt = null, LastOpenedAt = null };
+        }
+
+        if (fromVersion < 6)
+        {
+            entry = entry with { PasswordHistory = [] };
         }
 
         return Normalize(entry);
@@ -73,7 +80,28 @@ internal static class ModelMigrations
         // never written by this application, so treat it as "not set" defensively.
         DeletedAt = entry.DeletedAt == default(DateTimeOffset) ? null : entry.DeletedAt,
         LastOpenedAt = entry.LastOpenedAt == default(DateTimeOffset) ? null : entry.LastOpenedAt,
+        PasswordHistory = NormalizePasswordHistory(entry.PasswordHistory),
     };
+
+    /// <summary>
+    /// Trims the history to the retention cap, drops blank/corrupt entries and
+    /// forces newest-first order. A missing list (older payload) becomes empty.
+    /// </summary>
+    private static List<PasswordHistoryItem> NormalizePasswordHistory(IReadOnlyList<PasswordHistoryItem>? history)
+    {
+        if (history is null || history.Count == 0)
+        {
+            return [];
+        }
+
+        return history
+            .Where(item => item is not null
+                && !string.IsNullOrEmpty(item.Password)
+                && item.ChangedAt != default(DateTimeOffset))
+            .OrderByDescending(item => item.ChangedAt)
+            .Take(PasswordEntry.MaximumPasswordHistory)
+            .ToList();
+    }
 
     /// <summary>Fills in defaults for members that older payloads may lack.</summary>
     public static UserConfig Normalize(UserConfig config) => config with

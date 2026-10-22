@@ -630,4 +630,77 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Equal(expected.Tags, actual.Tags);
         Assert.Equal(expected.CustomFields, actual.CustomFields);
     }
+
+    [Fact]
+    public void ChangingThePasswordAppendsThePreviousValueToHistory()
+    {
+        using var vault = VaultService.CreateNew(_vaultPath, Password, FastOptions);
+        var added = vault.AddEntry(TestEntry("GitHub"));
+
+        Assert.True(vault.UpdateEntry(added with { Password = "rotated-1" }));
+
+        var reloaded = Assert.Single(vault.Entries);
+        var history = Assert.Single(reloaded.PasswordHistory!);
+        Assert.Equal("s3cret!", history.Password);
+
+        Assert.True(vault.UpdateEntry(reloaded with { Password = "rotated-2" }));
+
+        var afterSecond = Assert.Single(vault.Entries);
+        Assert.Equal(2, afterSecond.PasswordHistory!.Count);
+        Assert.Equal("rotated-1", afterSecond.PasswordHistory![0].Password);
+        Assert.Equal("s3cret!", afterSecond.PasswordHistory![1].Password);
+    }
+
+    [Fact]
+    public void EditingNonPasswordFieldsDoesNotTouchTheHistory()
+    {
+        using var vault = VaultService.CreateNew(_vaultPath, Password, FastOptions);
+        var added = vault.AddEntry(TestEntry("GitHub"));
+        var before = Assert.Single(vault.Entries);
+        Assert.Null(before.PasswordHistory);
+
+        Assert.True(vault.UpdateEntry(added with { Notes = "changed note", Username = "other@example.com" }));
+
+        var reloaded = Assert.Single(vault.Entries);
+        Assert.Equal("s3cret!", reloaded.Password);
+        Assert.True(reloaded.PasswordHistory is null || reloaded.PasswordHistory.Count == 0);
+        Assert.Equal("changed note", reloaded.Notes);
+    }
+
+    [Fact]
+    public void PasswordHistoryIsCappedAndSurvivesAReopen()
+    {
+        using (var vault = VaultService.CreateNew(_vaultPath, Password, FastOptions))
+        {
+            var entry = vault.AddEntry(TestEntry("GitHub"));
+            for (var index = 0; index < PasswordEntry.MaximumPasswordHistory + 5; index++)
+            {
+                Assert.True(vault.UpdateEntry(entry with { Password = "rotated-" + index }));
+                entry = Assert.Single(vault.Entries);
+            }
+
+            Assert.Equal(PasswordEntry.MaximumPasswordHistory, entry.PasswordHistory!.Count);
+        }
+
+        using var reopened = VaultService.Open(_vaultPath);
+        Assert.Equal(VaultUnlockStatus.Success, reopened.Unlock(Password));
+        var restored = Assert.Single(reopened.Entries);
+        Assert.Equal(PasswordEntry.MaximumPasswordHistory, restored.PasswordHistory!.Count);
+        Assert.Equal("rotated-13", restored.PasswordHistory![0].Password);
+    }
+
+    [Fact]
+    public void DeletingAnEntryRemovesItsHistoryWithIt()
+    {
+        using var vault = VaultService.CreateNew(_vaultPath, Password, FastOptions);
+        var added = vault.AddEntry(TestEntry("GitHub"));
+        vault.UpdateEntry(added with { Password = "rotated" });
+        var entryId = added.Id;
+
+        Assert.True(vault.DeleteEntry(entryId));
+        Assert.True(vault.PurgeEntry(entryId));
+
+        Assert.Empty(vault.Entries);
+        Assert.Empty(vault.DeletedEntries);
+    }
 }

@@ -66,6 +66,16 @@ public sealed record PasswordEntry
     public DateTimeOffset? LastOpenedAt { get; init; }
 
     /// <summary>
+    /// Superseded passwords, newest first, capped at
+    /// <see cref="MaximumPasswordHistory"/> (payload v6). Encrypted like the rest
+    /// of the entry, and only appended when the password itself changes.
+    /// </summary>
+    public IReadOnlyList<PasswordHistoryItem>? PasswordHistory { get; init; }
+
+    /// <summary>How many old passwords are retained per entry.</summary>
+    public const int MaximumPasswordHistory = 10;
+
+    /// <summary>
     /// Redacts secrets: the compiler-generated record dump (which the UI automation
     /// tree picks up as the list item name) would otherwise expose the password.
     /// </summary>

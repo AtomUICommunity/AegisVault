@@ -20,7 +20,7 @@ internal static class EntryRepository
     /// v4 = added the scalar Email field.
     /// v5 = added DeletedAt/LastOpenedAt (recycle bin + "recent" view).
     /// </summary>
-    public const int EntryFormatVersion = 5;
+    public const int EntryFormatVersion = 6;
 
     public static (byte[] Nonce, byte[] Ciphertext, byte[] Tag) Encrypt(ReadOnlySpan<byte> dek, PasswordEntry entry)
         => Encrypt(dek, entry, EntryFormatVersion);

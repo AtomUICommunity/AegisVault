@@ -305,10 +305,50 @@ public sealed class VaultService : IDisposable
             return false;
         }
 
-        var item = entry with { UpdatedAt = _time.GetUtcNow() };
-        Persist(item);
-        _entries[index] = item;
+        var previous = _entries[index];
+        var now = _time.GetUtcNow();
+        var updated = entry with { UpdatedAt = now };
+
+        // Only a real password change is a rotation. Comparing with UpdatedAt
+        // would also fire for notes/category edits, which is wrong.
+        if (!string.Equals(previous.Password, entry.Password, StringComparison.Ordinal))
+        {
+            updated = updated with
+            {
+                PasswordHistory = PrependHistory(previous.Password, entry.PasswordHistory, now),
+            };
+        }
+
+        Persist(updated);
+        _entries[index] = updated;
         return true;
+    }
+
+    /// <summary>
+    /// Adds the superseded password to the front of the history and trims it to
+    /// the retention cap. Keeps the caller-supplied history (if any) intact.
+    /// </summary>
+    private static List<PasswordHistoryItem> PrependHistory(
+        string previousPassword,
+        IReadOnlyList<PasswordHistoryItem>? existing,
+        DateTimeOffset changedAt)
+    {
+        var history = new List<PasswordHistoryItem>(PasswordEntry.MaximumPasswordHistory + 1);
+        if (!string.IsNullOrEmpty(previousPassword))
+        {
+            history.Add(new PasswordHistoryItem { Password = previousPassword, ChangedAt = changedAt });
+        }
+
+        if (existing is not null)
+        {
+            history.AddRange(existing);
+        }
+
+        return history
+            .Where(item => !string.IsNullOrEmpty(item.Password))
+            .OrderByDescending(item => item.ChangedAt)
+            .Take(PasswordEntry.MaximumPasswordHistory)
+            .ToList();
     }
 
     /// <summary>

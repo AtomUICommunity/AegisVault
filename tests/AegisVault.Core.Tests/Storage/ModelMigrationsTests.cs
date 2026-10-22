@@ -342,4 +342,84 @@ public sealed class ModelMigrationsTests
         // The same name under a different parent is not a conflict.
         Assert.Equal("Shared", categories.Single(category => category.Id == unrelatedChildId).Name);
     }
+
+    [Fact]
+    public void UpgradeFromV5LeavesPasswordHistoryEmpty()
+    {
+        var entry = ModelMigrations.UpgradeEntry(new PasswordEntry { Title = "Mail" }, fromVersion: 5);
+
+        Assert.NotNull(entry.PasswordHistory);
+        Assert.Empty(entry.PasswordHistory!);
+    }
+
+    [Fact]
+    public void NormalizeTrimsPasswordHistoryToTheCapAndOrdersItNewestFirst()
+    {
+        var now = DateTimeOffset.Parse("2026-10-22T12:00:00Z");
+        var history = Enumerable.Range(0, 15)
+            .Select(index => new PasswordHistoryItem
+            {
+                Password = "old-" + index,
+                ChangedAt = now.AddDays(-index),
+            })
+            .ToList();
+
+        var entry = ModelMigrations.Normalize(new PasswordEntry { Title = "Mail", PasswordHistory = history });
+
+        Assert.Equal(PasswordEntry.MaximumPasswordHistory, entry.PasswordHistory!.Count);
+        Assert.Equal("old-0", entry.PasswordHistory[0].Password);
+        Assert.Equal("old-9", entry.PasswordHistory[^1].Password);
+    }
+
+    [Fact]
+    public void NormalizeDropsBlankAndUnstampedHistoryItems()
+    {
+        var entry = ModelMigrations.Normalize(new PasswordEntry
+        {
+            Title = "Mail",
+            PasswordHistory =
+            [
+                new PasswordHistoryItem { Password = "", ChangedAt = DateTimeOffset.UtcNow },
+                new PasswordHistoryItem { Password = "kept", ChangedAt = DateTimeOffset.UtcNow },
+                new PasswordHistoryItem { Password = "no timestamp", ChangedAt = default },
+            ],
+        });
+
+        Assert.Equal(["kept"], entry.PasswordHistory!.Select(item => item.Password));
+    }
+
+    [Fact]
+    public void PasswordHistoryRoundTripsThroughTheSourceGeneratedJson()
+    {
+        var changedAt = DateTimeOffset.Parse("2026-10-22T12:00:00Z");
+        var entry = new PasswordEntry
+        {
+            Title = "Mail",
+            Password = "new",
+            PasswordHistory = [new PasswordHistoryItem { Password = "old", ChangedAt = changedAt }],
+        };
+
+        var json = JsonSerializer.Serialize(entry, VaultJsonContext.Default.PasswordEntry);
+        var restored = JsonSerializer.Deserialize(json, VaultJsonContext.Default.PasswordEntry)!;
+
+        Assert.NotNull(restored.PasswordHistory);
+        Assert.Equal("old", Assert.Single(restored.PasswordHistory!).Password);
+        Assert.Equal(changedAt, restored.PasswordHistory![0].ChangedAt);
+    }
+
+    [Fact]
+    public void ToStringStillRedactsTheHistory()
+    {
+        var entry = new PasswordEntry
+        {
+            Title = "Mail",
+            Password = "current-secret",
+            PasswordHistory = [new PasswordHistoryItem { Password = "historic-secret", ChangedAt = DateTimeOffset.UtcNow }],
+        };
+
+        var text = entry.ToString();
+
+        Assert.DoesNotContain("current-secret", text);
+        Assert.DoesNotContain("historic-secret", text);
+    }
 }
