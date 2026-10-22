@@ -144,6 +144,68 @@
 
                 <Border Classes="card" Padding="18,16">
                     <StackPanel Spacing="12">
+                        <TextBlock Text="{loc:Str Settings_SectionBackup}" FontSize="14" FontWeight="SemiBold" />
+                        <atom:CheckBox x:Name="BackupEnabledCheckBox"
+                                       AutomationProperties.AutomationId="BackupEnabledCheckBox"
+                                       Content="{loc:Str Settings_BackupEnabled}"
+                                       IsChecked="{Binding BackupEnabled, Mode=TwoWay}" />
+                        <atom:CheckBox AutomationProperties.AutomationId="BackupLocalEnabledCheckBox"
+                                       Content="{loc:Str Settings_BackupLocalEnabled}"
+                                       IsChecked="{Binding BackupLocalEnabled, Mode=TwoWay}"
+                                       IsEnabled="{Binding BackupEnabled}" />
+                        <Grid ColumnDefinitions="*,12,*" IsEnabled="{Binding BackupEnabled}">
+                            <StackPanel Grid.Column="0" Spacing="6">
+                                <TextBlock Classes="field" Text="{loc:Str Settings_BackupInterval}" />
+                                <atom:ComboBox AutomationProperties.AutomationId="BackupIntervalComboBox"
+                                               ItemsSource="{Binding BackupIntervalOptions}"
+                                               SelectedItem="{Binding SelectedBackupInterval}"
+                                               HorizontalAlignment="Stretch">
+                                    <atom:ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="vm:BackupIntervalOption">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </atom:ComboBox.ItemTemplate>
+                                </atom:ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="6">
+                                <TextBlock Classes="field" Text="{loc:Str Settings_BackupKeep}" />
+                                <atom:ComboBox AutomationProperties.AutomationId="BackupKeepComboBox"
+                                               ItemsSource="{Binding BackupKeepOptions}"
+                                               SelectedItem="{Binding SelectedBackupKeep}"
+                                               HorizontalAlignment="Stretch">
+                                    <atom:ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="vm:BackupKeepOption">
+                                            <TextBlock Text="{Binding Label}" />
+                                        </DataTemplate>
+                                    </atom:ComboBox.ItemTemplate>
+                                </atom:ComboBox>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <atom:Button AutomationProperties.AutomationId="BackupNowButton"
+                                         Content="{loc:Str Settings_BackupNow}"
+                                         Command="{Binding BackupNowCommand}"
+                                         IsEnabled="{Binding !BackupBusy}" />
+                            <atom:Button ButtonType="Default"
+                                         AutomationProperties.AutomationId="RestoreBackupButton"
+                                         Content="{loc:Str Settings_BackupRestore}"
+                                         Command="{Binding RestoreBackupCommand}"
+                                         IsEnabled="{Binding !BackupBusy}" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding BackupStatus}"
+                                   FontSize="12"
+                                   Opacity="0.7"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding BackupStatus, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <TextBlock Text="{loc:Str Settings_BackupHint}"
+                                   FontSize="12"
+                                   Opacity="0.6"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card" Padding="18,16">
+                    <StackPanel Spacing="12">
                         <TextBlock Text="{loc:Str Settings_SectionWindow}" FontSize="14" FontWeight="SemiBold" />
                         <StackPanel Spacing="6">
                             <TextBlock Classes="field" Text="{loc:Str Settings_CloseBehavior}" />

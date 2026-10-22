@@ -20,6 +20,10 @@ public sealed record LanguageOption(string Value, string Label);
 
 public sealed record CloseBehaviorOption(string Value, string Label);
 
+public sealed record BackupIntervalOption(int Minutes, string Label);
+
+public sealed record BackupKeepOption(int Count, string Label);
+
 public partial class SettingsViewModel : ObservableObject
 {
     private readonly VaultService _vault;
@@ -34,6 +38,11 @@ public partial class SettingsViewModel : ObservableObject
     private readonly Action<bool>? _applyStartMinimized;
     private readonly Action<string>? _applyCloseBehavior;
     private readonly Action<bool>? _applyReduceMotion;
+    private readonly Action<bool>? _applyBackup;
+    private readonly Func<Task<BackupResult>>? _backupNow;
+    private readonly Func<string, BackupValidation>? _validateBackup;
+    private readonly Func<string, BackupResult>? _restoreBackup;
+    private readonly Func<IReadOnlyList<BackupArtifact>>? _listBackups;
 
     public SettingsViewModel(
         VaultService vault,
@@ -56,7 +65,18 @@ public partial class SettingsViewModel : ObservableObject
         string closeBehavior = CloseActions.Ask,
         Action<string>? applyCloseBehavior = null,
         bool reduceMotion = false,
-        Action<bool>? applyReduceMotion = null)
+        Action<bool>? applyReduceMotion = null,
+        bool backupEnabled = false,
+        bool backupLocalEnabled = true,
+        int backupKeepCount = 7,
+        int backupIntervalMinutes = 1440,
+        string? backupLastSuccessUtc = null,
+        string? backupLastResult = null,
+        Action<bool>? applyBackup = null,
+        Func<Task<BackupResult>>? backupNow = null,
+        Func<string, BackupValidation>? validateBackup = null,
+        Func<string, BackupResult>? restoreBackup = null,
+        Func<IReadOnlyList<BackupArtifact>>? listBackups = null)
     {
         _vault = vault;
         _config = config;
@@ -70,6 +90,11 @@ public partial class SettingsViewModel : ObservableObject
         _applyStartMinimized = applyStartMinimized;
         _applyCloseBehavior = applyCloseBehavior;
         _applyReduceMotion = applyReduceMotion;
+        _applyBackup = applyBackup;
+        _backupNow = backupNow;
+        _validateBackup = validateBackup;
+        _restoreBackup = restoreBackup;
+        _listBackups = listBackups;
 
         var user = config.Current;
         SelectedAutoLock = AutoLockOptions.FirstOrDefault(option => option.Minutes == user.AutoLockMinutes) ?? AutoLockOptions[0];
@@ -83,6 +108,11 @@ public partial class SettingsViewModel : ObservableObject
         SelectedTheme = ThemeOptions.FirstOrDefault(option => option.Value == currentTheme) ?? ThemeOptions[0];
         SelectedLanguage = LanguageOptions.FirstOrDefault(option => option.Value == currentLanguage) ?? LanguageOptions[0];
         SelectedCloseBehavior = CloseBehaviorOptions.FirstOrDefault(option => option.Value == closeBehavior) ?? CloseBehaviorOptions[0];
+        BackupEnabled = backupEnabled;
+        BackupLocalEnabled = backupLocalEnabled;
+        SelectedBackupInterval = BackupIntervalOptions.FirstOrDefault(option => option.Minutes == backupIntervalMinutes) ?? BackupIntervalOptions[2];
+        SelectedBackupKeep = BackupKeepOptions.FirstOrDefault(option => option.Count == backupKeepCount) ?? BackupKeepOptions[1];
+        BackupStatus = BuildBackupStatus(backupLastSuccessUtc, backupLastResult);
 
         DeviceKeySupported = protector?.IsAvailable == true;
         HasDeviceKey = DeviceKeySupported && vault.HasDeviceKey(protector!);
@@ -125,6 +155,18 @@ public partial class SettingsViewModel : ObservableObject
         [new(CloseActions.Ask, Loc.T("Settings_CloseBehaviorAsk")),
          new(CloseActions.Minimize, Loc.T("Settings_CloseBehaviorMinimize")),
          new(CloseActions.Exit, Loc.T("Settings_CloseBehaviorExit"))];
+
+    public IReadOnlyList<BackupIntervalOption> BackupIntervalOptions { get; } =
+        [new(60, Loc.T("Settings_BackupIntervalHourly")),
+         new(360, Loc.T("Settings_BackupInterval6Hours")),
+         new(1440, Loc.T("Settings_BackupIntervalDaily")),
+         new(10080, Loc.T("Settings_BackupIntervalWeekly"))];
+
+    public IReadOnlyList<BackupKeepOption> BackupKeepOptions { get; } =
+        [new(3, Loc.Format("Settings_BackupKeepItems", 3)),
+         new(7, Loc.Format("Settings_BackupKeepItems", 7)),
+         new(14, Loc.Format("Settings_BackupKeepItems", 14)),
+         new(30, Loc.Format("Settings_BackupKeepItems", 30))];
 
     [ObservableProperty]
     private AutoLockOption? selectedAutoLock;
@@ -186,6 +228,28 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private CloseBehaviorOption? selectedCloseBehavior;
+
+    [ObservableProperty]
+    private bool backupEnabled;
+
+    [ObservableProperty]
+    private bool backupLocalEnabled;
+
+    [ObservableProperty]
+    private BackupIntervalOption? selectedBackupInterval;
+
+    [ObservableProperty]
+    private BackupKeepOption? selectedBackupKeep;
+
+    [ObservableProperty]
+    private string? backupStatus;
+
+    [ObservableProperty]
+    private bool backupBusy;
+
+    /// <summary>Re-reads the backup status line (called by the coordinator).</summary>
+    public void RefreshBackupStatus(string? lastSuccessUtc, string? lastResult)
+        => BackupStatus = BuildBackupStatus(lastSuccessUtc, lastResult);
 
     [ObservableProperty]
     private bool hasDeviceKey;
@@ -253,6 +317,7 @@ public partial class SettingsViewModel : ObservableObject
 
         _applyStartMinimized?.Invoke(StartMinimized);
         _applyCloseBehavior?.Invoke(SelectedCloseBehavior?.Value ?? CloseActions.Ask);
+        _applyBackup?.Invoke(BackupEnabled);
         StatusMessage = Loc.T("Settings_StatusSaved");
     }
 
@@ -416,9 +481,88 @@ public partial class SettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Runs a backup right now (the settings card button).</summary>
     [RelayCommand]
-    private void OpenDataFolder()
+    private async Task BackupNowAsync()
     {
+        if (_backupNow is null || BackupBusy)
+        {
+            return;
+        }
+
+        BackupBusy = true;
+        try
+        {
+            var result = await _backupNow();
+            BackupStatus = result.Success
+                ? Loc.Format("Settings_BackupStatusOk", Path.GetFileName(result.ArtifactPath ?? string.Empty))
+                : Loc.Format("Settings_BackupStatusFailed", result.FailureCode ?? "unknown");
+        }
+        finally
+        {
+            BackupBusy = false;
+        }
+    }
+
+    /// <summary>Asks for a backup file and restores it (with version/hash checks).</summary>
+    [RelayCommand]
+    private async Task RestoreBackupAsync()
+    {
+        if (_restoreBackup is null || _validateBackup is null || _listBackups is null || BackupBusy)
+        {
+            return;
+        }
+
+        var backups = _listBackups();
+        if (backups.Count == 0)
+        {
+            BackupStatus = Loc.T("Settings_BackupNoBackups");
+            return;
+        }
+
+        // Newest first; the dialog itself is the confirmation, and the service
+        // refuses anything that fails validation.
+        var newest = backups[0];
+        var validation = _validateBackup(newest.Path);
+        if (!validation.CanRestore)
+        {
+            BackupStatus = Loc.Format("Settings_BackupRestoreBlocked", validation.Status.ToString());
+            return;
+        }
+
+        BackupBusy = true;
+        try
+        {
+            var result = await Task.Run(() => _restoreBackup(newest.Path));
+            BackupStatus = result.Success
+                ? Loc.T("Settings_BackupRestoreDone")
+                : Loc.Format("Settings_BackupStatusFailed", result.FailureCode ?? "unknown");
+        }
+        finally
+        {
+            BackupBusy = false;
+        }
+    }
+
+    private static string? BuildBackupStatus(string? lastSuccessUtc, string? lastResult)
+    {
+        if (string.IsNullOrWhiteSpace(lastResult))
+        {
+            return null;
+        }
+
+        if (lastResult == "ok" && BackupPolicy.ParseLastSuccess(lastSuccessUtc) is { } when)
+        {
+            return Loc.Format("Settings_BackupStatusOk", when.ToLocalTime().ToString("g"));
+        }
+
+        return Loc.Format("Settings_BackupStatusFailed", lastResult.StartsWith("failed:", StringComparison.Ordinal)
+            ? lastResult["failed:".Length..]
+            : lastResult);
+    }
+
+    [RelayCommand]
+    private void OpenDataFolder()    {
         try
         {
             var vaultPath = _vault.VaultPath;

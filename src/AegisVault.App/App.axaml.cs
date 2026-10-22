@@ -50,6 +50,10 @@ public partial class App : Application
     private TrayIcon? _trayIcon;
     private QuickAccessWindow? _quickAccess;
     private bool _quickAccessPrewarmed;
+    private BackupCoordinator? _backupCoordinator;
+
+    /// <summary>Lets the open settings dialog refresh its backup status line.</summary>
+    private Action<string?, string?>? SettingsBackupRefresh { get; set; }
     private FloatingBallWindow? _floatingBall;
     private HotKeyService? _hotKey;
     private readonly IAppRestarter _restarter = ProcessAppRestarter.Instance;
@@ -432,6 +436,10 @@ public partial class App : Application
         ApplyScreenGuard(window);
         UpdateFloatingBall();
 
+        // Local backups: rebuild the coordinator for the new session and let it
+        // run immediately when the vault is already due (e.g. after unlock).
+        StartBackupCoordinator();
+
         // Deferred: the first hotkey press should not pay for the quick-access
         // XAML load and native window creation, but the prewarm must not delay
         // the main window's first frame either.
@@ -574,6 +582,8 @@ public partial class App : Application
         // next command; close it as part of the teardown.
         CloseSettingsWindow();
 
+        StopBackupCoordinator();
+
         _quickAccess?.Close();
         _quickAccess = null;
         _quickAccessPrewarmed = false;
@@ -697,6 +707,82 @@ public partial class App : Application
         // the tray and lets the existing "lock on minimize" policy apply.
         window.WindowState = WindowState.Minimized;
     }
+
+    /// <summary>
+    /// Creates the backup coordinator for the current session. Backups run while
+    /// the vault is unlocked <em>or</em> locked (a snapshot never decrypts), but
+    /// the session object is needed for the path, so it is rebuilt per session.
+    /// </summary>
+    private void StartBackupCoordinator()
+    {
+        StopBackupCoordinator();
+        if (_vault is null)
+        {
+            return;
+        }
+
+        _backupCoordinator = new BackupCoordinator(
+            new LocalBackupService(_vault.VaultPath),
+            _vault,
+            () => _preferences,
+            preferences =>
+            {
+                _preferences = preferences;
+                SavePreferences();
+            },
+            CurrentAppVersion());
+        _backupCoordinator.Start();
+
+        // An unlock can already be due (e.g. the interval elapsed while locked),
+        // so probe once without waiting for the first timer tick.
+        Dispatcher.UIThread.Post(
+            () => _ = RunAutomaticBackupAsync(),
+            DispatcherPriority.Background);
+    }
+
+    private void StopBackupCoordinator()
+    {
+        _backupCoordinator?.Dispose();
+        _backupCoordinator = null;
+    }
+
+    private async Task RunAutomaticBackupAsync()
+    {
+        var coordinator = _backupCoordinator;
+        if (coordinator is null)
+        {
+            return;
+        }
+
+        var result = await coordinator.RunOnceAsync(automatic: true);
+        if (!result.Success && result.FailureCode is not null)
+        {
+            // Only surface real failures, not "nothing to do" skips.
+            var skip = Enum.TryParse<BackupSkipReason>(result.FailureCode, out var parsed) ? parsed : BackupSkipReason.None;
+            if (skip == BackupSkipReason.None)
+            {
+                _mainViewModel?.StatusMessage = Loc.T("Main_BackupFailed");
+            }
+        }
+
+        SettingsBackupRefresh?.Invoke(_preferences.BackupLastSuccessUtc, _preferences.BackupLastResult);
+    }
+
+    /// <summary>Runs a user-triggered backup from the settings window.</summary>
+    private async Task<BackupResult> CreateBackupNowAsync()
+    {
+        if (_backupCoordinator is null)
+        {
+            return BackupResult.Failed("no-session", "The vault is locked.");
+        }
+
+        var result = await _backupCoordinator.RunOnceAsync(automatic: false);
+        SettingsBackupRefresh?.Invoke(_preferences.BackupLastSuccessUtc, _preferences.BackupLastResult);
+        return result;
+    }
+
+    private static string CurrentAppVersion()
+        => typeof(App).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     private void OnTrayClicked(object? sender, EventArgs e) => ShowMainWindow();
 
@@ -1060,7 +1146,31 @@ public partial class App : Application
             {
                 _preferences = _preferences with { CloseAction = CloseActions.Normalize(behavior) };
                 SavePreferences();
-            });
+            },
+            backupEnabled: _preferences.BackupEnabled,
+            backupLocalEnabled: _preferences.LocalBackupEnabled,
+            backupKeepCount: _preferences.BackupLocalKeepCount,
+            backupIntervalMinutes: _preferences.BackupIntervalMinutes,
+            backupLastSuccessUtc: _preferences.BackupLastSuccessUtc,
+            backupLastResult: _preferences.BackupLastResult,
+            applyBackup: enabled =>
+            {
+                _preferences = _preferences with { BackupEnabled = enabled };
+                SavePreferences();
+                _backupCoordinator?.Start();
+            },
+            backupNow: CreateBackupNowAsync,
+            validateBackup: LocalBackupService.Validate,
+            restoreBackup: path =>
+            {
+                if (_vault is null)
+                {
+                    return BackupResult.Failed("no-session", "The vault is locked.");
+                }
+
+                return new LocalBackupService(_vault.VaultPath).Restore(path, _vault.VaultPath);
+            },
+            listBackups: () => _vault is null ? [] : new LocalBackupService(_vault.VaultPath).ListBackups());
         var window = new SettingsWindow { DataContext = viewModel };
         // The native handle exists only after the dialog is shown.
         window.Opened += (_, _) => ApplyScreenGuard(window);
@@ -1070,9 +1180,11 @@ public partial class App : Application
             if (ReferenceEquals(_settingsWindow, window))
             {
                 _settingsWindow = null;
+                SettingsBackupRefresh = null;
             }
         };
 
+        SettingsBackupRefresh = (utc, result) => viewModel.RefreshBackupStatus(utc, result);
         _ = ObserveDialogAsync(window.ShowDialog(_mainWindow));
     }
 
