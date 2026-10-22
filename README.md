@@ -11,14 +11,15 @@
 
 到 **[Releases](https://github.com/iamartinlong/AegisVault/releases/latest)** 获取最新构建：
 
-| 平台 | 文件（`<版本>` 为 tag 名，如 `v0.4.1`） |
+| 平台 | 文件（`<版本>` 为 tag 名，如 `v0.5.0`） |
 |---|---|
-| Windows x64 | `AegisVault-win-x64-<版本>.zip` |
+| Windows x64（安装包） | `AegisVault-win-x64-setup-<版本>.exe`（推荐，per-user 安装、可在「应用和功能」卸载） |
+| Windows x64（便携） | `AegisVault-win-x64-<版本>.zip` |
 | Linux x64 | `AegisVault-linux-x64-<版本>.tar.gz` |
 | macOS（Apple 芯片） | `AegisVault-osx-arm64-<版本>.tar.gz` |
 | macOS（Intel） | `AegisVault-osx-x64-<版本>.tar.gz` |
 
-单文件、免安装、无需 .NET 运行时（NativeAOT）。压缩包内含 `LICENSE`、`THIRD-PARTY-NOTICES.md` 与 `SHA256SUMS-<rid>` 校验文件。macOS 构建未签名/未公证，首次运行需在「系统设置 → 隐私与安全性」放行；Linux 上需 `chmod +x`。
+单文件、无需 .NET 运行时（NativeAOT）。压缩包内含 `LICENSE`、`THIRD-PARTY-NOTICES.md` 与 `SHA256SUMS-<rid>` 校验文件（安装包也在校验和清单内）。**卸载不会删除你的库与偏好**。macOS 构建未签名/未公证，首次运行需在「系统设置 → 隐私与安全性」放行；Linux 上需 `chmod +x`，也可用包内 `install.sh` 安装到 `~/.local`。
 
 各版本变更与**升级须知**（含库格式兼容性）见 **[CHANGELOG.md](CHANGELOG.md)**。
 
@@ -146,6 +147,7 @@ DEK(随机 32B) ──AES-256-GCM(每条目随机 nonce)──▶ 条目密文�
 - [x] **v0.3.2 发布**：父分类可选中查看条目、`Esc`/`Ctrl+1…4` 快捷键、主窗口位置与大小记忆、解锁窗高度微调
 - [x] **v0.4.0 发布**：回收站与删除撤销、智能视图「最近」、导出能力（明文 CSV + 口令加密 JSON）
 - [x] **v0.4.1**：条目编辑操作栏吸底、「减少动效」开关、关闭窗口选择退出/最小化到托盘、快速访问预热
+- [x] **v0.5.0**：本地自动备份与恢复、密码轮换记录、开机启动（macOS/Linux）、Windows 安装包
 - [ ] 库备份到本地 / S3 兼容对象存储、分类树拖拽排序与折叠记忆
 - [ ] 自动填充（增强复制流 → 浏览器扩展）
 - [ ] macOS Keychain / Linux libsecret 完整实现
