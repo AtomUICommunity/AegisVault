@@ -62,4 +62,30 @@ public sealed record AppPreferences
 
     /// <summary>Whether the main window was maximized when it last closed.</summary>
     public bool MainWindowMaximized { get; init; }
+
+    /// <summary>Master switch for backups (default off: privacy first).</summary>
+    public bool BackupEnabled { get; init; }
+
+    /// <summary>
+    /// Local (same-folder) automatic backups. Null means "missing from an older
+    /// file" (source-generated JSON does not run property initialisers), which is
+    /// treated as enabled; use <see cref="LocalBackupEnabled"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool LocalBackupEnabled => BackupLocalEnabled ?? true;
+
+    /// <summary>Raw stored value; <c>null</c> when the file predates the field.</summary>
+    public bool? BackupLocalEnabled { get; init; }
+
+    /// <summary>How many local backups to keep; clamped to 1..100 on load.</summary>
+    public int BackupLocalKeepCount { get; init; } = 7;
+
+    /// <summary>Minutes between automatic backups; clamped to 15..43200 (30 days) on load.</summary>
+    public int BackupIntervalMinutes { get; init; } = 1440;
+
+    /// <summary>UTC timestamp (ISO-8601) of the last successful backup; UI only.</summary>
+    public string? BackupLastSuccessUtc { get; init; }
+
+    /// <summary>"ok" or "failed:&lt;code&gt;" of the last attempt; never contains secrets.</summary>
+    public string? BackupLastResult { get; init; }
 }

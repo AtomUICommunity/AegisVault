@@ -643,6 +643,16 @@ public sealed class VaultService : IDisposable
         VaultFilePermissions.Restrict(destination);
     }
 
+    /// <summary>
+    /// Writes a consistent <c>VACUUM INTO</c> snapshot of the vault file. No
+    /// decryption happens, so this is safe while the vault is locked.
+    /// </summary>
+    public void SnapshotTo(string destinationPath)
+    {
+        ThrowIfDisposed();
+        _database.SnapshotTo(destinationPath);
+    }
+
     /// <summary>Whether a usable device key is stored for the given protector.</summary>
     public bool HasDeviceKey(IKeyProtector protector)
     {

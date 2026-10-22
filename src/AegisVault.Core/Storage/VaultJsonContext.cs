@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using AegisVault.Core.Models;
+using AegisVault.Core.Services;
 
 namespace AegisVault.Core.Storage;
 
@@ -16,4 +17,5 @@ namespace AegisVault.Core.Storage;
 [JsonSerializable(typeof(CategoriesPayload))]
 [JsonSerializable(typeof(ExportPayload))]
 [JsonSerializable(typeof(EncryptedExport))]
+[JsonSerializable(typeof(BackupManifest))]
 internal sealed partial class VaultJsonContext : JsonSerializerContext;

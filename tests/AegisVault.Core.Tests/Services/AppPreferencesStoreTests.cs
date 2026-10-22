@@ -203,4 +203,43 @@ public sealed class AppPreferencesStoreTests : IDisposable
         File.WriteAllText(bogus, """{"CloseAction":"shutdown"}""");
         Assert.Equal(CloseActions.Ask, new AppPreferencesStore(bogus).Load().CloseAction);
     }
+
+    [Fact]
+    public void BackupPreferencesRoundTripAndClamp()
+    {
+        var path = Path.Combine(_directory, "app.json");
+
+        new AppPreferencesStore(path).Save(new AppPreferences
+        {
+            BackupEnabled = true,
+            BackupLocalEnabled = false,
+            BackupLocalKeepCount = 5,
+            BackupIntervalMinutes = 120,
+            BackupLastSuccessUtc = "2026-10-22T12:00:00Z",
+            BackupLastResult = "ok",
+        });
+
+        var loaded = new AppPreferencesStore(path).Load();
+        Assert.True(loaded.BackupEnabled);
+        Assert.False(loaded.BackupLocalEnabled);
+        Assert.Equal(5, loaded.BackupLocalKeepCount);
+        Assert.Equal(120, loaded.BackupIntervalMinutes);
+        Assert.Equal("2026-10-22T12:00:00Z", loaded.BackupLastSuccessUtc);
+        Assert.Equal("ok", loaded.BackupLastResult);
+
+        // Out-of-range values are clamped at the load boundary.
+        File.WriteAllText(path, """{"BackupLocalKeepCount":9999,"BackupIntervalMinutes":1}""");
+        var clamped = new AppPreferencesStore(path).Load();
+        Assert.Equal(LocalBackupService.MaximumKeepCount, clamped.BackupLocalKeepCount);
+        Assert.Equal(15, clamped.BackupIntervalMinutes);
+
+        // Legacy files predate the fields: defaults must be sane.
+        var legacy = Path.Combine(_directory, "legacy-backup.json");
+        File.WriteAllText(legacy, """{"Theme":"light"}""");
+        var defaults = new AppPreferencesStore(legacy).Load();
+        Assert.False(defaults.BackupEnabled);
+        Assert.True(defaults.BackupLocalEnabled);
+        Assert.Equal(7, defaults.BackupLocalKeepCount);
+        Assert.Equal(1440, defaults.BackupIntervalMinutes);
+    }
 }

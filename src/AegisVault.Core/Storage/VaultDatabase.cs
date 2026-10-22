@@ -310,6 +310,55 @@ internal sealed class VaultDatabase : IDisposable
         ExecuteNonQuery(_connection, null, "PRAGMA wal_checkpoint(FULL);");
     }
 
+    /// <summary>
+    /// Writes a consistent single-file snapshot with <c>VACUUM INTO</c>. Unlike
+    /// copying the vault file, this cannot capture a torn WAL state, and it works
+    /// while the vault is locked (no DEK needed).
+    /// </summary>
+    public void SnapshotTo(string destinationPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        if (File.Exists(destinationPath))
+        {
+            File.Delete(destinationPath);
+        }
+
+        using var command = _connection.CreateCommand();
+        // VACUUM INTO does not accept a bound parameter; the path is escaped by
+        // doubling single quotes so it cannot break out of the literal.
+        command.CommandText = $"VACUUM INTO '{destinationPath.Replace("'", "''", StringComparison.Ordinal)}';";
+        command.ExecuteNonQuery();
+        VaultFilePermissions.Restrict(destinationPath);
+    }
+
+    /// <summary>
+    /// Removes device keys (and the future backup credentials) from a snapshot so
+    /// a restored copy never carries the machine's password-less unlock material.
+    /// Must only ever be called on a snapshot, never on the live vault.
+    /// </summary>
+    public static void SanitizeSnapshot(string snapshotPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshotPath);
+
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = snapshotPath,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+        }.ToString();
+
+        using var connection = new SqliteConnection(connectionString);
+        connection.Open();
+        // Overwrite deleted pages before VACUUM rebuilds the file.
+        ExecuteNonQuery(connection, null, "PRAGMA secure_delete=ON;");
+        ExecuteNonQuery(connection, null, "DELETE FROM device_keys;");
+        ExecuteNonQuery(connection, null, "DELETE FROM settings WHERE key = 'backup-credentials';");
+        ExecuteNonQuery(connection, null, "VACUUM;");
+        connection.Close();
+
+        VaultFilePermissions.Restrict(snapshotPath);
+    }
+
     public void UpsertDeviceKey(string protectorId, byte[] blob, DateTimeOffset createdAt)
     {
         using var command = _connection.CreateCommand();
