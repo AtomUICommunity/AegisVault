@@ -136,6 +136,37 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
           "$hash  artifacts/$name.zip" | Set-Content -Encoding ascii "artifacts/SHA256SUMS-${{ matrix.rid }}"
 
+      # PKG-1: a per-user installer next to the portable zip. Inno Setup comes
+      # from Chocolatey (preinstalled on the Windows runner); Docker is not
+      # available on windows-latest, so it must not be the primary path.
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $publish = (Resolve-Path "src/AegisVault.App/bin/Release/net10.0/${{ matrix.rid }}/publish").Path
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+
+          $iscc = @(
+            (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+            (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y | Out-Null
+            $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found" }
+
+          & $iscc "/DAppVersion=$version" "/DPublishDir=$publish" "installer\AegisVault.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+          $setup = Get-ChildItem artifacts -Filter "AegisVault-${{ matrix.rid }}-setup-v*.exe" | Select-Object -First 1
+          if ($null -eq $setup) { throw "installer was not produced" }
+
+          # Keep the manifest honest: the setup executable is published too.
+          $hash = (Get-FileHash -Algorithm SHA256 $setup.FullName).Hash.ToLower()
+          Add-Content -Encoding ascii "artifacts/SHA256SUMS-${{ matrix.rid }}" "$hash  artifacts/$($setup.Name)"
+
       - name: Package (tar.gz)
         if: runner.os != 'Windows'
         shell: bash
@@ -146,6 +177,11 @@ jobs:
           find "$PUBLISH_DIR" -name '*.pdb' -delete
           cp LICENSE THIRD-PARTY-NOTICES.md "$PUBLISH_DIR/"
           OUT_NAME="AegisVault-${{ matrix.rid }}-${{ github.ref_name }}"
+          # PKG-1: ship the Linux install script inside the tarball so the
+          # unpacked folder is self-installing.
+          cp installer/install-linux.sh "$PUBLISH_DIR/install.sh"
+          chmod +x "$PUBLISH_DIR/install.sh"
+          cp src/AegisVault.App/Assets/app.png "$PUBLISH_DIR/app.png"
           tar -czf "artifacts/${OUT_NAME}.tar.gz" -C "$PUBLISH_DIR" .
           shasum -a 256 "artifacts/${OUT_NAME}.tar.gz" > "artifacts/SHA256SUMS-${{ matrix.rid }}"
 

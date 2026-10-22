@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Exe icon: Explorer, taskbar and the installer's shortcut target. -->
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <RootNamespace>AegisVault.App</RootNamespace>
     <!-- Turns on the trim/AOT analyzers so publish-only diagnostics show up in
          the normal build (the gate runs with -warnaserror). -->
