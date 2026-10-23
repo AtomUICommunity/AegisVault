@@ -309,15 +309,20 @@ public sealed class VaultService : IDisposable
         var now = _time.GetUtcNow();
         var updated = entry with { UpdatedAt = now };
 
+        // The retention list is owned by the vault, not by the caller: a UI record
+        // is a snapshot taken when the entry was loaded, so trusting it would let
+        // an unrelated edit (favourite, notes…) persist a stale/empty history and
+        // silently wipe what rotation recorded.
+        var history = previous.PasswordHistory ?? [];
+
         // Only a real password change is a rotation. Comparing with UpdatedAt
         // would also fire for notes/category edits, which is wrong.
         if (!string.Equals(previous.Password, entry.Password, StringComparison.Ordinal))
         {
-            updated = updated with
-            {
-                PasswordHistory = PrependHistory(previous.Password, entry.PasswordHistory, now),
-            };
+            history = PrependHistory(previous.Password, history, now);
         }
+
+        updated = updated with { PasswordHistory = history };
 
         Persist(updated);
         _entries[index] = updated;
@@ -326,11 +331,11 @@ public sealed class VaultService : IDisposable
 
     /// <summary>
     /// Adds the superseded password to the front of the history and trims it to
-    /// the retention cap. Keeps the caller-supplied history (if any) intact.
+    /// the retention cap.
     /// </summary>
     private static List<PasswordHistoryItem> PrependHistory(
         string previousPassword,
-        IReadOnlyList<PasswordHistoryItem>? existing,
+        IReadOnlyList<PasswordHistoryItem> existing,
         DateTimeOffset changedAt)
     {
         var history = new List<PasswordHistoryItem>(PasswordEntry.MaximumPasswordHistory + 1);
@@ -339,10 +344,7 @@ public sealed class VaultService : IDisposable
             history.Add(new PasswordHistoryItem { Password = previousPassword, ChangedAt = changedAt });
         }
 
-        if (existing is not null)
-        {
-            history.AddRange(existing);
-        }
+        history.AddRange(existing);
 
         return history
             .Where(item => !string.IsNullOrEmpty(item.Password))

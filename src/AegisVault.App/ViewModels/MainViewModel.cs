@@ -837,8 +837,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        ReplaceInList(updated);
-        SelectedEntry = updated;
+        // Re-read from the vault: UpdateEntry owns rotation history, so the local
+        // record is stale (it predates the append).
+        var saved = _vault.Entries.FirstOrDefault(candidate => candidate.Id == updated.Id) ?? updated;
+        ReplaceInList(saved);
+        SelectedEntry = saved;
         IsEditing = false;
         RefreshCategories();
         ApplyFilter();
@@ -2043,7 +2046,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 ? string.Empty
                 : FormatPasswordAge(entry.UpdatedAt);
             PasswordHistory = entry?.PasswordHistory ?? [];
-            HasPasswordHistory = PasswordHistory.Count > 0;            StatusMessage = null;
+            HasPasswordHistory = PasswordHistory.Count > 0;
+            StatusMessage = null;
         }
         finally
         {
