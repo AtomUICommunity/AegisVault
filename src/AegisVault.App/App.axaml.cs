@@ -102,21 +102,25 @@ public partial class App : Application
         }
         else
         {
-            // Headless test host and design-time: no interactive startup, but
-            // the AtomUI themes must be registered so controls render.
-            InitializeAtomUI();
+            // Headless test host and design-time: no interactive startup. AtomUI
+            // itself was already configured on the AppBuilder (Program.BuildAvaloniaApp),
+            // so nothing to initialise here.
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
     /// <summary>
-    /// Staged startup: the brand splash goes up first, then AtomUI and the
-    /// shell are initialised, then the vault is opened and the session hands
-    /// over to the destination window (main or unlock). The frame yields let
-    /// the compositor present the splash before the next stage blocks the UI
-    /// thread (AtomUI theme initialisation takes several seconds on a cold
-    /// start; the window itself must never flash before it is ready).
+    /// Staged startup: the brand splash goes up first, then the shell and vault
+    /// are initialised, then the session hands over to the destination window
+    /// (main or unlock). The frame yields let the compositor present the splash
+    /// before the next stage blocks the UI thread.
+    /// <para>
+    /// Since AtomUI 6.2.6 the theme is committed on the AppBuilder before this
+    /// Application is constructed (see <c>Program.BuildAvaloniaApp</c>), so the
+    /// splash no longer has to cover AtomUI initialisation. It still earns its
+    /// place: it covers vault opening and the window handover.
+    /// </para>
     /// </summary>
     private async Task StartAsync(IClassicDesktopStyleApplicationLifetime desktop)
     {
@@ -201,14 +205,16 @@ public partial class App : Application
         }
     }
 
-    private void InitializeAtomUI()
+    /// <summary>
+    /// AtomUI is configured on the <see cref="Avalonia.AppBuilder"/> now
+    /// (<c>Program.BuildAvaloniaApp</c>), because 6.2.6 moved the entry point there
+    /// and commits it before this Application is constructed. Startup only needs
+    /// to let the staged flow continue.
+    /// </summary>
+    private static void InitializeAtomUI()
     {
-        this.UseAtomUI(builder =>
-        {
-            builder.UseDesktopControls();
-            builder.UseDesktopColorPicker();
-            AppTheme.ConfigureInitial(builder, _preferences.Theme);
-        });
+        // Intentionally empty: kept so the staged startup reads the same as before
+        // and future post-commit work has an obvious home.
     }
 
     /// <summary>

@@ -218,6 +218,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>True while the view-model pushes a selection into the sidebar.</summary>
     private bool _syncingCategorySelection;
 
+    /// <summary>
+    /// True while the sidebar collections are being rebuilt. A selection change
+    /// raised during the rebuild would otherwise re-enter and repopulate the
+    /// collection that is still being enumerated.
+    /// </summary>
+    private bool _refreshingCategoryViews;
+
     /// <summary>Category ids the current filter matches (the selected branch).</summary>
     private HashSet<Guid> _categoryFilterIds = [];
 
@@ -1285,6 +1292,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         NotifyHealthChanged();
 
+        // Guard against re-entrancy: rebuilding the sidebar can raise a selection
+        // change, which calls back into this method and repopulates `Categories`
+        // while the outer call is still using it.
+        if (_refreshingCategoryViews)
+        {
+            return;
+        }
+
+        _refreshingCategoryViews = true;
+        try
+        {
+            RefreshCategoryViewsCore(selectedKey);
+        }
+        finally
+        {
+            _refreshingCategoryViews = false;
+        }
+    }
+
+    private void RefreshCategoryViewsCore(string? selectedKey)
+    {
         Categories.Clear();
         Categories.Add(new CategoryItem(AllCategoryKey, Loc.T("Main_CategoryAll"), null, false, Entries.Count));
         Categories.Add(new CategoryItem(
@@ -1571,7 +1599,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         UserCategories.Clear();
         TagCategories.Clear();
 
-        foreach (var category in Categories)
+        // Snapshot first: the section collections are bound to the sidebar, and a
+        // selection change raised while adding can refresh categories again. Enumerating
+        // the live ObservableCollection then throws "Collection was modified".
+        var snapshot = Categories.ToArray();
+        foreach (var category in snapshot)
         {
             switch (category.Kind)
             {
