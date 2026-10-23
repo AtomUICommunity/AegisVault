@@ -108,8 +108,89 @@ public static class AppTheme
         _ => DetectSystemDark(),
     };
 
+    /// <summary>
+    /// Resolves the OS appearance for the initial AtomUI configuration.
+    /// <para>
+    /// The AtomUI configuration callback runs before <see cref="Application"/> is
+    /// constructed (<c>AppBuilder.SetupUnsafe</c> calls
+    /// <c>AfterPlatformServicesSetup</c> and only then the application factory), so
+    /// <c>Application.Current</c> is null there. Avalonia 12 also marks
+    /// <c>AvaloniaLocator</c> as <c>[PrivateApi]</c>, so the platform settings
+    /// cannot be resolved from the builder either. We therefore read the OS
+    /// appearance directly, which needs no Avalonia types and is safe in that
+    /// callback. Any failure degrades to light; <see cref="Apply"/> re-applies the
+    /// real appearance as soon as the Application exists.
+    /// </para>
+    /// </summary>
     private static bool DetectSystemDark()
-        => Application.Current?.PlatformSettings?.GetColorValues().ThemeVariant == PlatformThemeVariant.Dark;
+    {
+        if (Application.Current?.PlatformSettings is { } platformSettings)
+        {
+            return platformSettings.GetColorValues().ThemeVariant == PlatformThemeVariant.Dark;
+        }
+
+        return DetectSystemDarkFromOs();
+    }
+
+    /// <summary>Reads the OS appearance without touching Avalonia state.</summary>
+    private static bool DetectSystemDarkFromOs()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // 1 = light, 0 = dark. Missing value means the OS is light.
+                using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+                return key?.GetValue("AppsUseLightTheme") is int light && light == 0;
+            }
+
+            if (OperatingSystem.IsMacOS())
+            {
+                using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "defaults", "read -g AppleInterfaceStyle")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                });
+                if (process is null)
+                {
+                    return false;
+                }
+
+                var output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(1000);
+                return output.Trim().Equals("Dark", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Linux: follow the freedesktop preference when present.
+            var configHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            var baseDirectory = string.IsNullOrEmpty(configHome)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config")
+                : configHome;
+            var settingsPath = Path.Combine(baseDirectory, "gtk-3.0", "settings.ini");
+            if (File.Exists(settingsPath))
+            {
+                foreach (var line in File.ReadLines(settingsPath))
+                {
+                    if (line.StartsWith("gtk-application-prefer-dark-theme", StringComparison.OrdinalIgnoreCase)
+                        && line.Contains("true", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or System.Security.SecurityException or System.ComponentModel.Win32Exception
+            or InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>Initial theme, applied during AtomUI initialization (before first render).</summary>
     public static void ConfigureInitial(IAtomUIBuilder builder, string preference, bool reduceMotion = false)

@@ -25,6 +25,7 @@ AegisVault（玄钥）每个发布版本的用户可见变更。格式遵循 [Ke
 - **启动入口迁移**：AtomUI 6.2.6 起 `Application.UseAtomUI` 被移除，改为 `AppBuilder.UseAtomUI`，配置回调改在 Application 构造前执行。已把注册迁到 `Program.BuildAvaloniaApp`，并把读取偏好的逻辑限制为纯文件读取（回调内不得触碰 Avalonia 运行时对象）。
 - **headless 测试宿主**：测试会话改为以 `Program` 为入口类型，否则反射找不到 `BuildAvaloniaApp`，AtomUI 不会注册、全部控件失去样式。
 - **侧栏重入崩溃**：`RefreshCategoryViews` 重建分类集合时若触发选中变化，会重入并枚举正在修改的集合（`Collection was modified`）。改为重建期间抑制重入，并对分类做快照枚举。
+- **「跟随系统」首帧主题**：AtomUI 的配置回调现在早于 Application 创建，原先通过 `Application.Current.PlatformSettings` 读系统深浅色的代码会拿到 null，导致系统深色下首帧按浅色渲染。改为直接读系统设置（Windows 注册表 / macOS `defaults` / Linux GTK 配置），不依赖任何 Avalonia 内部 API（Avalonia 12 已将 `AvaloniaLocator` 标记为 `[PrivateApi]`）。
 
 ### 升级须知
 
