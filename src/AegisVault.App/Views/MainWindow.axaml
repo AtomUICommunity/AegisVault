@@ -4,6 +4,7 @@
         xmlns:models="using:AegisVault.Core.Models"
         xmlns:loc="using:AegisVault.App.Localization"
         xmlns:conv="using:AegisVault.App.Converters"
+        xmlns:anim="using:Avalonia.Animation"
         xmlns:controls="using:AegisVault.App.Controls"
         xmlns:atom="https://atomui.net"
         xmlns:antd="https://atomui.net/icons/antdesign"
@@ -85,7 +86,7 @@
                             VerticalAlignment="Top"
                             HorizontalAlignment="Stretch"
                             CornerRadius="1"
-                            IsVisible="False"
+                            Opacity="0"
                             IsHitTestVisible="False"
                             Background="{atom:SharedTokenResource ColorPrimary}" />
                 </Panel>
@@ -181,7 +182,7 @@
             <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
             <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
         </Style>
-        <!-- The row left behind by a running drag gesture. -->
+        <!-- Row left behind by a running drag gesture. -->
         <Style Selector="Border.categoryRowLabel.dragSource">
             <Setter Property="Opacity" Value="0.5" />
         </Style>
@@ -1383,5 +1384,31 @@
                 </Border>
             </Panel>
         </Border>
+
+        <!-- ==================== Drag ghost ====================
+             A small chip that follows the pointer while a category row is dragged,
+             so the gesture reads as "carrying this row". Positioned through Canvas
+             coordinates (no layout pass) and never hit-testable. -->
+        <Canvas IsHitTestVisible="False">
+            <Border x:Name="CategoryDragGhost"
+                    IsVisible="False"
+                    Opacity="0"
+                    Padding="8,4"
+                    CornerRadius="6"
+                    Background="{atom:SharedTokenResource ColorBgElevated}"
+                    BorderBrush="{atom:SharedTokenResource ColorPrimary}"
+                    BorderThickness="1">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
+                    </Transitions>
+                </Border.Transitions>
+                <TextBlock x:Name="CategoryDragGhostLabel"
+                           FontSize="12"
+                           MaxWidth="200"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{atom:SharedTokenResource ColorText}" />
+            </Border>
+        </Canvas>
     </Panel>
 </Window>

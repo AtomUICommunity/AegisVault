@@ -109,6 +109,13 @@ public static class AppTheme
     };
 
     /// <summary>
+    /// Whether the user asked for reduced motion. Read by the self-drawn
+    /// animations (the sidebar drag), which do not go through AtomUI's motion
+    /// token and therefore have to honour the preference themselves.
+    /// </summary>
+    public static bool ReduceMotion => _appliedReduceMotion == true;
+
+    /// <summary>
     /// Resolves the OS appearance for the initial AtomUI configuration.
     /// <para>
     /// The AtomUI configuration callback runs before <see cref="Application"/> is

@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.Linq;
 using AegisVault.App.Localization;
 using AegisVault.App.Services;
+using AegisVault.App.Theme;
 using AegisVault.App.ViewModels;
 using AegisVault.Core.Models;
 using Avalonia;
@@ -9,7 +10,10 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Controls.Templates;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Media.Transformation;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AtomUIMenuItem = AtomUI.Desktop.Controls.MenuItem;
 using AtomUIButton = AtomUI.Desktop.Controls.Button;
@@ -93,6 +97,170 @@ public partial class MainWindow : Window
         => CategoryTree.GetVisualDescendants()
             .OfType<Border>()
             .Where(candidate => candidate.Classes.Contains("categoryRowLabel"));
+
+    /// <summary>The row <c>Border</c> that renders a category, or null when not realised.</summary>
+    internal Border? FindCategoryRow(Guid categoryId)
+        => GetCategoryRows()
+            .FirstOrDefault(candidate => candidate.DataContext is CategoryNavNode node &&
+                                         node.Item.CategoryId == categoryId);
+
+    /// <summary>
+    /// Y position of every realised category row, keyed by category. Sampled before a
+    /// drop so the rows that change place can slide from their old spot to the new
+    /// one (a FLIP animation).
+    /// </summary>
+    internal Dictionary<Guid, double> CaptureCategoryRowPositions()
+    {
+        var positions = new Dictionary<Guid, double>();
+        foreach (var row in GetCategoryRows())
+        {
+            if (row.DataContext is CategoryNavNode { Item.CategoryId: { } id } &&
+                row.TranslatePoint(new Point(0, 0), CategoryTree) is { } top)
+            {
+                positions[id] = top.Y;
+            }
+        }
+
+        return positions;
+    }
+
+    /// <summary>
+    /// Slides the rows that changed place into their new position. Runs after the
+    /// model update, so each row's final layout is already correct; the animation only
+    /// offsets it by the distance it travelled and eases that offset back to zero.
+    /// <para>
+    /// This is the piece that makes a swap read as motion: a reorder recreates the
+    /// moved row's container and its neighbours shift by one row height, which
+    /// without an offset animation is an instantaneous jump.
+    /// </para>
+    /// </summary>
+    internal void AnimateCategoryRowSwap(IReadOnlyDictionary<Guid, double> before)
+    {
+        // Wait for the layout pass that follows the collection change: the rows only
+        // know their new positions afterwards, and measuring before that would compare
+        // against stale bounds.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => Animate(before), Avalonia.Threading.DispatcherPriority.Loaded);
+
+        void Animate(IReadOnlyDictionary<Guid, double> previous)
+        {
+            if (AppTheme.ReduceMotion)
+            {
+                return;
+            }
+
+            var offsets = new List<(Border Row, double Delta)>();
+            foreach (var row in GetCategoryRows())
+            {
+                if (row.DataContext is not CategoryNavNode { Item.CategoryId: { } id } ||
+                    !previous.TryGetValue(id, out var oldTop) ||
+                    row.TranslatePoint(new Point(0, 0), CategoryTree) is not { } current)
+                {
+                    continue;
+                }
+
+                var delta = oldTop - current.Y;
+                if (Math.Abs(delta) < 0.5)
+                {
+                    continue;
+                }
+
+                offsets.Add((row, delta));
+            }
+
+            if (offsets.Count == 0)
+            {
+                return;
+            }
+
+            // Drive the slide frame by frame. A Transitions-based version depends on
+            // the style pass having installed the transition before the offset is
+            // cleared, which is easy to get wrong and silently does nothing; stepping
+            // RenderTransform directly is deterministic and never touches layout.
+            RunSlide(offsets);
+        }
+    }
+
+    /// <summary>Duration of the post-drop slide.</summary>
+    private static readonly TimeSpan SlideDuration = TimeSpan.FromMilliseconds(180);
+
+    /// <summary>
+    /// Slides each row from an offset back to zero. <see cref="Visual.RenderTransform"/>
+    /// is composited, so this never triggers a layout or paint pass of the sidebar.
+    /// </summary>
+    private void RunSlide(List<(Border Row, double Delta)> offsets)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var timer = new Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(15),
+        };
+
+        void Apply(double progress)
+        {
+            // Ease-out cubic: quick departure, soft landing.
+            var eased = 1 - Math.Pow(1 - progress, 3);
+
+            foreach (var (row, delta) in offsets)
+            {
+                if (!row.IsAttachedToVisualTree())
+                {
+                    continue;
+                }
+
+                var remaining = delta * (1 - eased);
+                row.RenderTransform = Math.Abs(remaining) < 0.2
+                    ? null
+                    : TransformOperations.Parse(
+                        $"translate(0px, {remaining.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+            }
+        }
+
+        timer.Tick += (_, _) =>
+        {
+            var progress = started.Elapsed.TotalMilliseconds / SlideDuration.TotalMilliseconds;
+            if (progress >= 1)
+            {
+                timer.Stop();
+                foreach (var (row, _) in offsets)
+                {
+                    row.RenderTransform = null;
+                }
+
+                return;
+            }
+
+            Apply(progress);
+        };
+
+        Apply(0);
+        timer.Start();
+    }
+
+    /// <summary>
+    /// Moves the floating "what am I dragging" chip. Position is a plain
+    /// <see cref="Canvas"/> coordinate, so following the pointer never invalidates
+    /// the sidebar's layout — only this one small element re-renders.
+    /// </summary>
+    internal void ShowCategoryDragGhost(string label, Point position)
+    {
+        if (CategoryDragGhostLabel.Text != label)
+        {
+            CategoryDragGhostLabel.Text = label;
+        }
+
+        if (!CategoryDragGhost.IsVisible)
+        {
+            CategoryDragGhost.IsVisible = true;
+        }
+
+        // Sit just below-right of the cursor, clamped inside the window.
+        var x = Math.Min(position.X + 14, Bounds.Width - CategoryDragGhost.Bounds.Width - 8);
+        var y = Math.Min(position.Y + 10, Bounds.Height - CategoryDragGhost.Bounds.Height - 8);
+        Canvas.SetLeft(CategoryDragGhost, Math.Max(0, x));
+        Canvas.SetTop(CategoryDragGhost, Math.Max(0, y));
+    }
+
+    internal void HideCategoryDragGhost() => CategoryDragGhost.IsVisible = false;
 
 
     private MainViewModel? _categoryNodesViewModel;

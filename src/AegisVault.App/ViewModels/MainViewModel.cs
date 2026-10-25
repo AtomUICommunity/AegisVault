@@ -1,9 +1,11 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using AegisVault.App.Localization;
 using AegisVault.App.Services;
 using AegisVault.Core.Models;
 using AegisVault.Core.Services;
 using AtomUI.Controls.Primitives;
+using AtomUI.Desktop.Controls;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -1476,6 +1478,99 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Reorders the sidebar tree in place after a drag. Only the rows that actually
+    /// moved get their container recreated; every other row (and its expansion
+    /// state) stays alive. A full <see cref="RefreshCategoryViews"/> here would
+    /// destroy and re-create the whole tree and replay the expand animation of
+    /// every open branch, which reads as a hard flicker.
+    /// </summary>
+    /// <returns>
+    /// False when the change cannot be expressed in place — a node appeared or
+    /// disappeared, or a branch changed parent — so the caller falls back to a full
+    /// rebuild (which has to construct the new subtree anyway).
+    /// </returns>
+    private bool TryRefreshCategoryOrder()
+    {
+        if (CategoryNodes is not IList roots)
+        {
+            return false;
+        }
+
+        if (!TrySyncSiblings(roots, parentId: null, SortedChildrenOf))
+        {
+            return false;
+        }
+
+        foreach (var node in EnumerateNodes(CategoryNodes))
+        {
+            // Entries is declared as IList<INavMenuEntry>; only the runtime type
+            // (AtomUI's NavMenuEntryCollection) also implements the non-generic IList
+            // that offers RemoveAt/Insert without a generic cast.
+            if (node.Entries is not IList children)
+            {
+                return false;
+            }
+
+            if (!TrySyncSiblings(children, node.Item.CategoryId, SortedChildrenOf))
+            {
+                return false;
+            }
+        }
+
+        _categoryTreeSignature = CategoryTreeSignature();
+        return true;
+
+        /// <summary>
+        /// Reorders one sibling collection in place. Takes the non-generic
+        /// <see cref="IList"/> because the roots are an
+        /// <c>ObservableCollection&lt;CategoryNavNode&gt;</c> while a node's children
+        /// are AtomUI's own <c>NavMenuEntryCollection</c>; both implement it, and it is
+        /// the only common surface with index access + remove/insert.
+        /// </summary>
+        static bool TrySyncSiblings(
+            IList target,
+            Guid? parentId,
+            Func<Guid?, List<Category>> childrenOf)
+        {
+            var nodes = target.OfType<CategoryNavNode>().ToList();
+
+            // The uncategorized pseudo row rides at the end and never reorders; it is
+            // not part of the category list, so keep it out of the comparison.
+            var pseudo = nodes.Where(node => node.Item.CategoryId is null).ToList();
+
+            var desired = childrenOf(parentId)
+                .Select(category => nodes.FirstOrDefault(node => node.Item.CategoryId == category.Id))
+                .OfType<CategoryNavNode>()
+                .Concat(pseudo)
+                .ToList();
+
+            // A different count means a category appeared or disappeared here; that
+            // needs a real node, not a reorder.
+            if (desired.Count != target.Count)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < desired.Count; index++)
+            {
+                var current = target.IndexOf(desired[index]);
+                if (current == index)
+                {
+                    continue;
+                }
+
+                // AtomUI's node collection has no Move, so a reorder is always a
+                // remove + insert. That recreates exactly one row container and
+                // keeps the rest of the tree intact.
+                target.RemoveAt(current);
+                target.Insert(index, desired[index]);
+            }
+
+            return true;
+        }
+    }
+
     private void AddOpenPaths(Guid? parentId, TreeNodePath parentPath)
     {
         foreach (var category in SortedChildrenOf(parentId))
@@ -1894,7 +1989,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return false;
         }
 
-        RefreshCategoryViews();
+        if (!TryRefreshCategoryOrder())
+        {
+            RefreshCategoryViews();
+        }
+
         StatusMessage = Loc.T("Main_StatusCategoryReordered");
         return true;
     }
@@ -1914,17 +2013,25 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         if (newParentId == current.ParentId)
         {
-            // Same parent: this is a pure reorder. Appending to the end of the
-            // group needs no comparison; a "before" that is already the next
-            // sibling would otherwise be a pointless write.
-            if (beforeId == id || _vault.ReorderCategory(id, beforeId))
+            // Same parent: this is a pure reorder. Dropping a row on itself is not a
+            // position; treat it as a no-op rather than a failure.
+            if (beforeId == id)
             {
-                RefreshCategoryViews();
-                StatusMessage = Loc.T("Main_StatusCategoryReordered");
                 return null;
             }
 
-            return Loc.T("Main_CategoryOperationFailed");
+            if (!_vault.ReorderCategory(id, beforeId))
+            {
+                return Loc.T("Main_CategoryOperationFailed");
+            }
+
+            if (!TryRefreshCategoryOrder())
+            {
+                RefreshCategoryViews();
+            }
+
+            StatusMessage = Loc.T("Main_StatusCategoryReordered");
+            return null;
         }
 
         return TryMoveCategory(id, newParentId, out var error) ? null : error;

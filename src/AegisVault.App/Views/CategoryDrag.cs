@@ -1,4 +1,5 @@
 using System.Linq;
+using AegisVault.App.Theme;
 using AegisVault.App.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
@@ -22,6 +23,12 @@ namespace AegisVault.App.Views;
 /// does not happen on the headless platform, which is why a row-scoped version can
 /// pass its tests and still do nothing on a real machine.
 /// </para>
+/// <para>
+/// Smoothness comes from never touching layout while the pointer moves. The drop
+/// marker is always present and only its <see cref="Visual.Opacity"/> is animated
+/// (a composited property), so moving from row to row costs one property write
+/// instead of a visibility toggle that re-runs arrange and paints the whole tree.
+/// </para>
 /// </summary>
 internal sealed class CategoryDrag
 {
@@ -42,6 +49,9 @@ internal sealed class CategoryDrag
     private Border? _targetRow;
     private bool _started;
 
+    /// <summary>The last marker we raised, so a move within the same band is a no-op.</summary>
+    private Border? _raisedMarker;
+
     private CategoryDrag(MainWindow window, CategoryNavNode node, Border row, Point origin)
     {
         _window = window;
@@ -49,6 +59,13 @@ internal sealed class CategoryDrag
         _row = row;
         _origin = origin;
     }
+
+    private Guid DraggedId => _node.Item.CategoryId!.Value;
+
+    private MainViewModel? ViewModel => _window.DataContext as MainViewModel;
+
+    /// <summary>True once the pointer has travelled far enough to count as a drag.</summary>
+    public bool IsStarted => _started;
 
     /// <summary>
     /// Arms the gesture for a row press and captures the pointer to the window, so
@@ -61,13 +78,6 @@ internal sealed class CategoryDrag
         return gesture;
     }
 
-    private Guid DraggedId => _node.Item.CategoryId!.Value;
-
-    private MainViewModel? ViewModel => _window.DataContext as MainViewModel;
-
-    /// <summary>True once the pointer has travelled far enough to count as a drag.</summary>
-    public bool IsStarted => _started;
-
     /// <summary>
     /// Tracks the pointer. Returns true for a started drag so the caller can stop
     /// treating the gesture as an ordinary click.
@@ -79,20 +89,25 @@ internal sealed class CategoryDrag
             return false;
         }
 
+        var position = e.GetPosition(_window);
+
         if (!_started)
         {
-            var position = e.GetPosition(_row);
-            if (Math.Abs(position.X - _origin.X) < Threshold &&
-                Math.Abs(position.Y - _origin.Y) < Threshold)
+            var local = e.GetPosition(_row);
+            if (Math.Abs(local.X - _origin.X) < Threshold &&
+                Math.Abs(local.Y - _origin.Y) < Threshold)
             {
                 return false;
             }
 
             _started = true;
             _row.Classes.Add("dragSource");
+            _window.ShowCategoryDragGhost(_node.Item.DisplayName, position);
+            return true;
         }
 
-        Mark(ResolveDropTarget(viewModel, e.GetPosition(_window)));
+        _window.ShowCategoryDragGhost(_node.Item.DisplayName, position);
+        Mark(ResolveDropTarget(viewModel, position));
         return true;
     }
 
@@ -106,6 +121,8 @@ internal sealed class CategoryDrag
             ? ResolveDropTarget(viewModel, e.GetPosition(_window))
             : (DropTarget?)null;
 
+        var dropped = _started;
+        var droppedId = DraggedId;
         Cancel();
         e.Pointer.Capture(null);
 
@@ -114,56 +131,100 @@ internal sealed class CategoryDrag
             return;
         }
 
-        var error = current.DropCategory(DraggedId, resolved.ParentId, resolved.BeforeId);
+        // Capture where every row sits *before* the model changes, so the rows that
+        // swap can slide from their old spot to the new one instead of teleporting.
+        var before = dropped ? _window.CaptureCategoryRowPositions() : null;
+
+        var error = current.DropCategory(droppedId, resolved.ParentId, resolved.BeforeId);
         if (error is not null)
         {
             current.StatusMessage = error;
+            return;
+        }
+
+        if (before is not null)
+        {
+            _window.AnimateCategoryRowSwap(before);
         }
     }
 
     /// <summary>Abandons the gesture (capture lost, tree rebuilt, window closing).</summary>
     public void Cancel()
     {
-        _marker?.SetCurrentValue(Visual.IsVisibleProperty, false);
+        if (_raisedMarker is not null)
+        {
+            _raisedMarker.SetCurrentValue(Visual.OpacityProperty, 0d);
+            _raisedMarker = null;
+        }
+
         _marker = null;
 
         _targetRow?.Classes.Remove("dropTarget");
         _targetRow = null;
 
         _row.Classes.Remove("dragSource");
+        _window.HideCategoryDragGhost();
     }
 
     /// <summary>Shows the marker for the row/gap the pointer is over.</summary>
     private void Mark(DropTarget? target)
     {
-        _marker?.SetCurrentValue(Visual.IsVisibleProperty, false);
-        _marker = null;
-
-        _targetRow?.Classes.Remove("dropTarget");
-        _targetRow = null;
-
         if (target is not { } resolved || ViewModel is not { } viewModel)
         {
+            if (_raisedMarker is not null)
+            {
+                _raisedMarker.SetCurrentValue(Visual.OpacityProperty, 0d);
+                _raisedMarker = null;
+            }
+
+            _marker = null;
+            _targetRow?.Classes.Remove("dropTarget");
+            _targetRow = null;
             return;
         }
 
         if (resolved.Into && resolved.ParentId is { } parent)
         {
-            if (RowFor(parent) is { } row)
+            // Re-parent: highlight the row that becomes the new parent.
+            var row = RowFor(parent);
+            if (!ReferenceEquals(row, _targetRow))
             {
-                row.Classes.Add("dropTarget");
+                _targetRow?.Classes.Remove("dropTarget");
                 _targetRow = row;
+                _targetRow?.Classes.Add("dropTarget");
+            }
+
+            if (_raisedMarker is not null)
+            {
+                _raisedMarker.SetCurrentValue(Visual.OpacityProperty, 0d);
+                _raisedMarker = null;
             }
 
             return;
         }
 
-        if (resolved.BeforeId is { } before && RowFor(before) is { } markerRow &&
-            DropMarkerOf(markerRow) is { } marker)
+        _targetRow?.Classes.Remove("dropTarget");
+        _targetRow = null;
+
+        var marker = resolved.BeforeId is { } before && RowFor(before) is { } markerRow
+            ? DropMarkerOf(markerRow)
+            : null;
+
+        if (ReferenceEquals(marker, _raisedMarker))
         {
-            marker.SetCurrentValue(Visual.IsVisibleProperty, true);
-            _marker = marker;
+            // Same band as the previous move: nothing to animate. This is what keeps a
+            // slow drag from re-triggering work on every pixel.
+            return;
         }
+
+        if (_raisedMarker is not null)
+        {
+            _raisedMarker.SetCurrentValue(Visual.OpacityProperty, 0d);
+        }
+
+        _raisedMarker = marker;
+        marker?.SetCurrentValue(Visual.OpacityProperty, 1d);
+        _marker = marker;
     }
 
     /// <summary>
@@ -219,9 +280,7 @@ internal sealed class CategoryDrag
     }
 
     private Border? RowFor(Guid categoryId)
-        => _window.GetCategoryRows()
-            .FirstOrDefault(candidate => candidate.DataContext is CategoryNavNode node &&
-                                         node.Item.CategoryId == categoryId);
+        => _window.FindCategoryRow(categoryId);
 
     private static Border? DropMarkerOf(Border row)
         => row.GetVisualDescendants()

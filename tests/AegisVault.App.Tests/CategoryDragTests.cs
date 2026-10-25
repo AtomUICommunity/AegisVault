@@ -209,11 +209,13 @@ public sealed class CategoryDragTests
             window.MouseMove(TopEdge(Row(window, "Alpha"), window));
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-            // Mid-gesture: the source is dimmed and exactly one drop bar is shown.
+            // Mid-gesture: the source is dimmed and exactly one drop bar is fully
+            // opaque (the bars are always present now; only their opacity animates,
+            // which is what keeps a drag from invalidating layout).
             Assert.Contains("dragSource", source.Classes);
             var markers = window.GetVisualDescendants()
                 .OfType<Border>()
-                .Where(candidate => candidate.Name == "CategoryDropBefore" && candidate.IsVisible)
+                .Where(candidate => candidate.Name == "CategoryDropBefore" && candidate.Opacity > 0)
                 .ToList();
             Assert.Single(markers);
 
@@ -224,7 +226,7 @@ public sealed class CategoryDragTests
             Assert.DoesNotContain("dragSource", Row(window, "Beta").Classes);
             Assert.DoesNotContain(
                 window.GetVisualDescendants().OfType<Border>(),
-                candidate => candidate.Name == "CategoryDropBefore" && candidate.IsVisible);
+                candidate => candidate.Name == "CategoryDropBefore" && candidate.Opacity > 0);
         }
         finally
         {
@@ -250,6 +252,41 @@ public sealed class CategoryDragTests
             Assert.Equal("Beta", viewModel.SelectedCategory?.DisplayName);
             Assert.DoesNotContain("dragSource", row.Classes);
             Assert.Equal(["Alpha", "Beta"], vault.Categories.Select(category => category.Name));
+        }
+        finally
+        {
+            Cleanup(window, directory);
+        }
+    });
+
+    /// <summary>
+    /// The flicker the user reported came from rebuilding the whole tree after a
+    /// reorder: every row was destroyed and re-created (and every open branch
+    /// replayed its expand animation). A reorder must instead keep the other rows'
+    /// controls alive.
+    /// </summary>
+    [Fact]
+    public Task ReorderingKeepsEveryOtherRowAlive() => Headless.Run(() =>
+    {
+        var (window, vault, directory) = Show("Alpha", "Beta", "Gamma");
+        using var _ = vault;
+        try
+        {
+            var before = new Dictionary<string, Border>
+            {
+                ["Alpha"] = Row(window, "Alpha"),
+                ["Beta"] = Row(window, "Beta"),
+                ["Gamma"] = Row(window, "Gamma"),
+            };
+
+            Drag(window, Row(window, "Gamma"), TopEdge(Row(window, "Alpha"), window));
+
+            Assert.Equal(["Gamma", "Alpha", "Beta"], SidebarOrder(vault));
+
+            // Alpha and Beta did not move, so their controls must be the same
+            // instances — that is what "no flicker" means structurally.
+            Assert.Same(before["Alpha"], Row(window, "Alpha"));
+            Assert.Same(before["Beta"], Row(window, "Beta"));
         }
         finally
         {
