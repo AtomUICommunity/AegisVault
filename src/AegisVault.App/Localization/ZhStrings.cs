@@ -114,6 +114,7 @@ internal static class ZhStrings
         ["Main_CategoryMergeAction"] = "合并",
         ["Main_CategoryMergeMessage"] = "将“{0}”的条目与子分类合并到：",
         ["Main_StatusCategoryMoved"] = "已移动分类。",
+        ["Main_StatusCategoryReordered"] = "已调整分类顺序。",
         ["Main_StatusCategoryMerged"] = "已合并分类。",
         ["Main_StatusCategoryBranchDeleted"] = "已删除分类及其子分类。",
         ["Main_Cancel"] = "取消",

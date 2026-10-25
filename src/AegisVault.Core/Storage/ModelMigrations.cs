@@ -114,6 +114,7 @@ internal static class ModelMigrations
     {
         Name = category.Name ?? string.Empty,
         Color = CategoryColors.Normalize(category.Color),
+        SortOrder = category.SortOrder < 0 ? 0 : category.SortOrder,
     };
 
     /// <summary>Deepest category level the UI renders (roots sit at level 1).</summary>
@@ -121,8 +122,8 @@ internal static class ModelMigrations
 
     /// <summary>
     /// Applies version-specific upgrades to a decrypted categories payload and
-    /// normalizes the tree. Called for the envelope (v3) and for the bare lists
-    /// written by older releases (v1/v2).
+    /// normalizes the tree. Called for the envelope (v3/v4) and for the bare
+    /// lists written by older releases (v1/v2).
     /// </summary>
     public static List<Category> UpgradeCategories(IReadOnlyList<Category>? categories, int fromVersion)
     {
@@ -140,7 +141,42 @@ internal static class ModelMigrations
         // v1 -> v2: added the colour field (normalized to an empty string).
         // v2 -> v3: added ParentId (hierarchy); older payloads are flat, so every
         // category becomes a root.
-        return NormalizeCategoryTree(categories);
+        // v3 -> v4: added SortOrder. A v3 payload has no order at all, so the
+        // alphabetical order it used to be rendered in is frozen into the data
+        // (see EnsureSiblingOrder) — the upgrade must not visibly reshuffle rows.
+        return EnsureSiblingOrder(NormalizeCategoryTree(categories));
+    }
+
+    /// <summary>
+    /// Guarantees that every category carries a positive <see cref="Category.SortOrder"/>
+    /// and that siblings do not share one. Categories that already carry an order
+    /// keep their relative order; the rest follow them in alphabetical order. On a
+    /// payload with no orders at all (v3 and older) this freezes exactly the
+    /// alphabetical order those releases displayed.
+    /// </summary>
+    public static List<Category> EnsureSiblingOrder(List<Category> categories)
+    {
+        foreach (var group in categories.GroupBy(category => category.ParentId ?? Guid.Empty).ToList())
+        {
+            var ordered = group
+                .OrderBy(category => category.SortOrder > 0 ? category.SortOrder : int.MaxValue)
+                .ThenBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            for (var position = 0; position < ordered.Count; position++)
+            {
+                var category = ordered[position];
+                if (category.SortOrder == position + 1)
+                {
+                    continue;
+                }
+
+                var index = categories.FindIndex(candidate => candidate.Id == category.Id);
+                categories[index] = category with { SortOrder = position + 1 };
+            }
+        }
+
+        return categories;
     }
 
     /// <summary>

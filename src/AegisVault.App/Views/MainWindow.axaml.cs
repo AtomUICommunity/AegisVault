@@ -10,6 +10,7 @@ using Avalonia.Input;
 using Avalonia.Controls.Templates;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using AtomUIMenuItem = AtomUI.Desktop.Controls.MenuItem;
 using AtomUIButton = AtomUI.Desktop.Controls.Button;
 using MenuFlyout = AtomUI.Desktop.Controls.MenuFlyout;
@@ -33,7 +34,66 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // The sidebar drag gesture is tracked at window level with tunnelled
+        // handlers: AtomUI's menu interaction re-captures the pointer to its own
+        // container after a row press, so row-scoped handlers stop seeing moves on
+        // a real desktop even though they work in the headless tests.
+        AddHandler(PointerMovedEvent, OnCategoryDragMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnCategoryDragReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerCaptureLostEvent, OnCategoryDragCaptureLost, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
+
+    private CategoryDrag? _drag;
+
+    private void OnCategoryDragMoved(object? sender, PointerEventArgs e)
+    {
+        if (_drag is not { } drag)
+        {
+            return;
+        }
+
+        if (drag.Track(e))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnCategoryDragReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_drag is not { } drag)
+        {
+            return;
+        }
+
+        var started = drag.IsStarted;
+        _drag = null;
+        drag.Release(e);
+
+        if (started)
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnCategoryDragCaptureLost(object? sender, PointerCaptureLostEventArgs e) => CancelCategoryDrag();
+
+    /// <summary>
+    /// Drops any in-flight drag. Called when the tree is rebuilt (every row is
+    /// replaced) and when the window closes, so no marker is left behind.
+    /// </summary>
+    private void CancelCategoryDrag()
+    {
+        _drag?.Cancel();
+        _drag = null;
+    }
+
+    /// <summary>Row <c>Border</c>s of the sidebar tree, in visual order.</summary>
+    internal IEnumerable<Border> GetCategoryRows()
+        => CategoryTree.GetVisualDescendants()
+            .OfType<Border>()
+            .Where(candidate => candidate.Classes.Contains("categoryRowLabel"));
+
 
     private MainViewModel? _categoryNodesViewModel;
 
@@ -62,7 +122,12 @@ public partial class MainWindow : Window
     }
 
     private void OnCategoryNodesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        => ApplyCategoryRowTemplates(_categoryNodesViewModel);
+    {
+        // A rebuild replaces every row, so any drag markers point at controls that
+        // are no longer in the tree; drop the gesture instead of leaking them.
+        CancelCategoryDrag();
+        ApplyCategoryRowTemplates(_categoryNodesViewModel);
+    }
 
     private void ApplyCategoryRowTemplates(MainViewModel? viewModel)
     {
@@ -401,16 +466,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Per-row "…" menu. The row itself expands or selects the node, so every
-    /// category action lives in this flyout instead of inline buttons.
-    /// </summary>
-    /// <summary>
     /// Category rows select from their label area (parents included — AtomUI treats a
     /// row with children as a submenu header and would only toggle it). Marking the
     /// press handled keeps the NavMenu's row activation out of the way, while the
     /// arrow column and the row padding still reach the control and toggle.
+    /// <para>
+    /// The same press may start a drag (see <see cref="CategoryDrag"/>): the gesture
+    /// only arms here, and the first move past the threshold turns it into a drag, so
+    /// a plain click behaves exactly as before.
+    /// </para>
     /// </summary>
-    private void OnCategoryRowLabelPressed(object? sender, PointerPressedEventArgs e)
+    private void OnCategoryRowLabelPress(object? sender, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
@@ -419,6 +485,14 @@ public partial class MainWindow : Window
 
         e.Handled = true;
         SelectCategoryRow(sender);
+
+        if (sender is Border { DataContext: CategoryNavNode node } row && node.IsUserCategory)
+        {
+            _drag = CategoryDrag.Arm(this, node, row, e);
+            return;
+        }
+
+        CancelCategoryDrag();
     }
 
     private void OnCategoryRowLabelKeyDown(object? sender, KeyEventArgs e)
@@ -440,6 +514,10 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Per-row "…" menu. The row itself expands or selects the node, so every
+    /// category action lives in this flyout instead of inline buttons.
+    /// </summary>
     private void OnCategoryActionsClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: CategoryNavNode node } button ||

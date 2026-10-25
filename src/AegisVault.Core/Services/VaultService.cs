@@ -496,11 +496,29 @@ public sealed class VaultService : IDisposable
             Name = normalized,
             Color = CategoryColors.Normalize(color),
             ParentId = parentId,
+            // New rows go to the end of their sibling group (the sidebar appends
+            // them, matching what the user sees after creating a category).
+            SortOrder = NextSiblingOrder(parentId),
         };
         _categories.Add(category);
         SortCategories();
         PersistCategories();
         return category;
+    }
+
+    /// <summary>Order value that appends a new child to <paramref name="parentId"/>.</summary>
+    private int NextSiblingOrder(Guid? parentId)
+    {
+        var highest = 0;
+        foreach (var category in _categories)
+        {
+            if (category.ParentId == parentId && category.SortOrder > highest)
+            {
+                highest = category.SortOrder;
+            }
+        }
+
+        return highest + 1;
     }
 
     public bool RenameCategory(Guid id, string name)
@@ -614,6 +632,12 @@ public sealed class VaultService : IDisposable
         }
 
         _categories.RemoveAt(current);
+
+        // The removal (and any promoted children) can leave gaps or duplicate
+        // SortOrder values inside a sibling group; renumbering here keeps the
+        // persisted order identical to what the load-time normalization would
+        // produce, so a reopen is a no-op.
+        ModelMigrations.EnsureSiblingOrder(_categories);
         SortCategories();
         PersistCategories();
 
@@ -941,7 +965,7 @@ public sealed class VaultService : IDisposable
         try
         {
             List<Category>? categories;
-            if (version >= CategoriesPayload.CurrentVersion)
+            if (version >= CategoriesPayload.FirstEnvelopeVersion)
             {
                 var payload = JsonSerializer.Deserialize(json, VaultJsonContext.Default.CategoriesPayload);
                 if (payload is not null && payload.Version > CategoriesPayload.CurrentVersion)
@@ -971,8 +995,93 @@ public sealed class VaultService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Keeps the in-memory list alphabetical. Sibling order lives in
+    /// <see cref="Category.SortOrder"/> and is applied by the consumers that show
+    /// a tree (sidebar, parent pickers); a flat alphabetical list keeps the
+    /// category combo box and exports in the same order they had before the
+    /// ordering feature existed.
+    /// </summary>
     private void SortCategories()
         => _categories.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Moves a category to a sibling position. <paramref name="beforeId"/> is the
+    /// sibling the moved category must precede, or <c>null</c> to append it to the
+    /// end of its current sibling group. Returns false for a missing category or a
+    /// target under a different parent (the drop indicator rejects those first).
+    /// </summary>
+    public bool ReorderCategory(Guid id, Guid? beforeId)
+    {
+        ThrowIfDisposed();
+        EnsureUnlocked();
+
+        var index = _categories.FindIndex(category => category.Id == id);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var moving = _categories[index];
+        var parentId = moving.ParentId;
+
+        if (beforeId == id)
+        {
+            // Dropping a row onto itself is not a position; report it as invalid
+            // instead of pretending something changed.
+            return false;
+        }
+
+        if (beforeId is { } targetId)
+        {
+            var target = _categories.FirstOrDefault(category => category.Id == targetId);
+            if (target is null || target.ParentId != parentId)
+            {
+                return false;
+            }
+        }
+
+        var siblings = _categories
+            .Where(category => category.ParentId == parentId && category.Id != id)
+            .OrderBy(category => category.SortOrder > 0 ? category.SortOrder : int.MaxValue)
+            .ThenBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var insertAt = beforeId is { } before
+            ? siblings.FindIndex(candidate => candidate.Id == before)
+            : siblings.Count;
+        if (insertAt < 0)
+        {
+            return false;
+        }
+
+        siblings.Insert(insertAt, moving);
+        return ApplySiblingOrder(siblings);
+    }
+
+    /// <summary>
+    /// Writes a dense 1..N <see cref="Category.SortOrder"/> over a sibling group
+    /// (already in display order) and persists. Shared by reorder and move so the
+    /// two gestures never leave gaps or duplicates behind.
+    /// </summary>
+    private bool ApplySiblingOrder(List<Category> siblings)
+    {
+        for (var position = 0; position < siblings.Count; position++)
+        {
+            var sibling = siblings[position];
+            var index = _categories.FindIndex(category => category.Id == sibling.Id);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            _categories[index] = sibling with { SortOrder = position + 1 };
+        }
+
+        SortCategories();
+        PersistCategories();
+        return true;
+    }
 
     /// <summary>
     /// Ids of a category and everything nested under it. Used by the UI to filter
@@ -1037,9 +1146,17 @@ public sealed class VaultService : IDisposable
         EnsureUniqueCategoryName(_categories[index].Name, excludeId: id, parentId);
 
         _categories[index] = _categories[index] with { ParentId = parentId };
-        SortCategories();
-        PersistCategories();
-        return true;
+        var moving = _categories[index];
+
+        // Appending to the destination group (rather than keeping the old
+        // SortOrder) is what makes a drag "into" a category behave like a drop at
+        // the end of its children — and it keeps orders dense in the old group too.
+        var siblings = _categories
+            .Where(category => category.ParentId == parentId)
+            .OrderBy(category => category.SortOrder > 0 ? category.SortOrder : int.MaxValue)
+            .ThenBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return ApplySiblingOrder(siblings);
     }
 
     /// <summary>
@@ -1108,6 +1225,8 @@ public sealed class VaultService : IDisposable
             }
         }
 
+        // Re-parented children need a fresh slot in their new sibling group.
+        ModelMigrations.EnsureSiblingOrder(_categories);
         SortCategories();
         PersistCategories();
         ReassignEntriesToCategory(sourceId, targetId);

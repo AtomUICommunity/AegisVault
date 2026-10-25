@@ -210,6 +210,79 @@ public sealed class CategoryTests : IDisposable
     }
 
     [Fact]
+    public void V3PayloadIsUpgradedToAnOrderThatMatchesTheOldAlphabeticalList()
+    {
+        // A v0.5.2 vault: the envelope has a version and a tree, but no SortOrder.
+        // Upgrading must not reshuffle the sidebar, so the alphabetical order those
+        // releases displayed is frozen into the data.
+        var path = Path.Combine(_directory, "v3-order.aegis");
+        var rootId = Guid.NewGuid();
+        var zebraId = Guid.NewGuid();
+        var alphaId = Guid.NewGuid();
+        var childBetaId = Guid.NewGuid();
+        var childAardvarkId = Guid.NewGuid();
+        var payload = new CategoriesPayload
+        {
+            Version = 3,
+            Categories =
+            [
+                new Category { Id = zebraId, Name = "Zebra" },
+                new Category { Id = alphaId, Name = "Alpha" },
+                new Category { Id = rootId, Name = "Work" },
+                new Category { Id = childBetaId, Name = "Beta", ParentId = rootId },
+                new Category { Id = childAardvarkId, Name = "Aardvark", ParentId = rootId },
+            ],
+        };
+        var json = JsonSerializer.SerializeToUtf8Bytes(payload, VaultJsonContext.Default.CategoriesPayload);
+
+        var dek = WriteVaultWithCategoriesBlob(path, json, 3);
+        try
+        {
+            using (var vault = VaultService.Open(path))
+            {
+                Assert.Equal(VaultUnlockStatus.Success, vault.Unlock(Password));
+
+                // Roots: Alpha, Work, Zebra — the order v0.5.2 rendered.
+                Assert.Equal(
+                    ["Alpha", "Work", "Zebra"],
+                    vault.Categories
+                        .Where(category => category.ParentId is null)
+                        .OrderBy(category => category.SortOrder)
+                        .Select(category => category.Name));
+                Assert.Equal([1, 2, 3], vault.Categories
+                    .Where(category => category.ParentId is null)
+                    .Select(category => category.SortOrder)
+                    .Order());
+
+                // Children: Aardvark, Beta, numbered independently of the roots.
+                Assert.Equal(
+                    ["Aardvark", "Beta"],
+                    vault.Categories
+                        .Where(category => category.ParentId == rootId)
+                        .OrderBy(category => category.SortOrder)
+                        .Select(category => category.Name));
+                Assert.Equal(
+                    [1, 2],
+                    vault.Categories
+                        .Where(category => category.ParentId == rootId)
+                        .Select(category => category.SortOrder)
+                        .Order());
+            }
+
+            // The upgrade is a one-shot rewrite: the blob now declares v4 and
+            // carries SortOrder, so the next unlock normalizes nothing.
+            var rewritten = ReadCategoriesBlob(path, dek, CategoriesPayload.CurrentVersion);
+            var text = Encoding.UTF8.GetString(rewritten);
+            Assert.Contains($"\"Version\":{CategoriesPayload.CurrentVersion}", text);
+            Assert.Contains("\"SortOrder\"", text);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dek);
+        }
+    }
+
+    [Fact]
     public void NewerCategoriesPayloadIsReportedAsUnsupportedVersion()
     {
         // A future release writes the same envelope shape with a higher version.
@@ -596,5 +669,83 @@ public sealed class CategoryTests : IDisposable
             Assert.Equal(rootId, promoted.ParentId);
             Assert.Equal("Servers (2)", promoted.Name);
         }
+    }
+
+    [Fact]
+    public void ReorderCategoryPersistsTheSiblingOrder()
+    {
+        var path = Path.Combine(_directory, "reorder.aegis");
+        Guid gammaId;
+
+        using (var vault = VaultService.CreateNew(path, Password, FastOptions))
+        {
+            vault.AddCategory("Alpha");
+            vault.AddCategory("Beta");
+            gammaId = vault.AddCategory("Gamma").Id;
+
+            var alpha = vault.Categories.Single(category => category.Name == "Alpha");
+            Assert.True(vault.ReorderCategory(gammaId, alpha.Id));
+
+            Assert.Equal(
+                ["Gamma", "Alpha", "Beta"],
+                vault.Categories.OrderBy(category => category.SortOrder).Select(category => category.Name));
+            Assert.Equal([1, 2, 3], vault.Categories.Select(category => category.SortOrder).Order());
+        }
+
+        using (var vault = VaultService.Open(path))
+        {
+            Assert.Equal(VaultUnlockStatus.Success, vault.Unlock(Password));
+            Assert.Equal(
+                ["Gamma", "Alpha", "Beta"],
+                vault.Categories.OrderBy(category => category.SortOrder).Select(category => category.Name));
+        }
+    }
+
+    [Fact]
+    public void ReorderCategoryRejectsATargetUnderAnotherParent()
+    {
+        using var vault = VaultService.CreateNew(
+            Path.Combine(_directory, "reorder-cross.aegis"), Password, FastOptions);
+
+        var left = vault.AddCategory("Left");
+        var right = vault.AddCategory("Right");
+        var child = vault.AddCategory("Child", parentId: left.Id);
+
+        Assert.False(vault.ReorderCategory(child.Id, right.Id));
+        Assert.False(vault.ReorderCategory(child.Id, child.Id));
+        Assert.Equal(left.Id, vault.Categories.Single(category => category.Id == child.Id).ParentId);
+    }
+
+    [Fact]
+    public void MoveCategoryAppendsToTheEndOfTheNewSiblingGroup()
+    {
+        using var vault = VaultService.CreateNew(
+            Path.Combine(_directory, "move-order.aegis"), Password, FastOptions);
+
+        var destination = vault.AddCategory("Destination");
+        vault.AddCategory("Existing", parentId: destination.Id);
+        var moving = vault.AddCategory("Moving");
+
+        Assert.True(vault.MoveCategory(moving.Id, destination.Id));
+
+        var children = vault.Categories.Where(category => category.ParentId == destination.Id).ToList();
+        Assert.Equal(["Existing", "Moving"], children.OrderBy(category => category.SortOrder).Select(category => category.Name));
+        Assert.Equal([1, 2], children.OrderBy(category => category.SortOrder).Select(category => category.SortOrder));
+    }
+
+    [Fact]
+    public void DeletingACategoryKeepsTheSiblingOrderDense()
+    {
+        using var vault = VaultService.CreateNew(
+            Path.Combine(_directory, "delete-order.aegis"), Password, FastOptions);
+
+        vault.AddCategory("Alpha");
+        var beta = vault.AddCategory("Beta");
+        vault.AddCategory("Gamma");
+
+        Assert.True(vault.DeleteCategory(beta.Id));
+
+        Assert.Equal(["Alpha", "Gamma"], vault.Categories.OrderBy(category => category.SortOrder).Select(category => category.Name));
+        Assert.Equal([1, 2], vault.Categories.Select(category => category.SortOrder).Order());
     }
 }

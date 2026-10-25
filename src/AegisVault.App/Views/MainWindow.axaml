@@ -42,39 +42,53 @@
                     Cursor="Hand"
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="{Binding Item.DisplayName}"
-                    PointerPressed="OnCategoryRowLabelPressed"
+                    PointerPressed="OnCategoryRowLabelPress"
                     KeyDown="OnCategoryRowLabelKeyDown">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                    <Ellipse Grid.Column="0"
-                             Width="8" Height="8"
-                             Margin="4,0,12,0"
-                             VerticalAlignment="Center"
-                             Fill="{Binding Item, Converter={StaticResource CategoryDotConverter}}" />
-                    <TextBlock Grid.Column="1"
-                               AutomationProperties.AutomationId="CategoryNameText"
-                               Text="{Binding Item.DisplayName}"
-                               FontSize="13"
-                               TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2"
-                                Classes="categoryActions"
-                                Orientation="Horizontal"
-                                Spacing="0"
-                                VerticalAlignment="Center">
-                        <atom:Button ButtonType="Text"
-                                     AutomationProperties.AutomationId="CategoryActionsButton"
-                                     Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
-                                     ToolTip.Tip="{loc:Str Main_CategoryActionsTooltip}"
-                                     Click="OnCategoryActionsClicked" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="3"
-                               AutomationProperties.AutomationId="CategoryCountText"
-                               Text="{Binding Item.Count}"
-                               FontSize="11"
-                               Opacity="0.5"
-                               Margin="6,0,0,0"
-                               VerticalAlignment="Center" />
-                </Grid>
+                <!-- The drop marker is a sibling of the content (not part of the
+                     grid), so it can sit on the row's top edge and stretch the
+                     full sidebar width. Code-behind shows it for exactly the row
+                     the pointer hovers; a binding would need a rebuild per move. -->
+                <Panel>
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                        <Ellipse Grid.Column="0"
+                                 Width="8" Height="8"
+                                 Margin="4,0,12,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding Item, Converter={StaticResource CategoryDotConverter}}" />
+                        <TextBlock Grid.Column="1"
+                                   AutomationProperties.AutomationId="CategoryNameText"
+                                   Text="{Binding Item.DisplayName}"
+                                   FontSize="13"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2"
+                                    Classes="categoryActions"
+                                    Orientation="Horizontal"
+                                    Spacing="0"
+                                    VerticalAlignment="Center">
+                            <atom:Button ButtonType="Text"
+                                         AutomationProperties.AutomationId="CategoryActionsButton"
+                                         Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
+                                         ToolTip.Tip="{loc:Str Main_CategoryActionsTooltip}"
+                                         Click="OnCategoryActionsClicked" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="3"
+                                   AutomationProperties.AutomationId="CategoryCountText"
+                                   Text="{Binding Item.Count}"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   Margin="6,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                    <Border x:Name="CategoryDropBefore"
+                            Height="2"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Stretch"
+                            CornerRadius="1"
+                            IsVisible="False"
+                            IsHitTestVisible="False"
+                            Background="{atom:SharedTokenResource ColorPrimary}" />
+                </Panel>
             </Border>
         </DataTemplate>
     </Window.Resources>
@@ -162,6 +176,15 @@
         <Style Selector="Border.categoryRowLabel:focus">
             <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
         </Style>
+        <!-- Row highlighted as the drop parent ("drag into this category"). -->
+        <Style Selector="Border.categoryRowLabel.dropTarget">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
+            <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
+        </Style>
+        <!-- The row left behind by a running drag gesture. -->
+        <Style Selector="Border.categoryRowLabel.dragSource">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
     </Window.Styles>
 
     <Panel>
@@ -221,7 +244,8 @@
                                  NavMenu header template in Theme/CategoryNavMenu.axaml. The NavMenu
                                  stretches (its Inline theme defaults to left-aligned) and drops the
                                  menu content padding so row backgrounds span the sidebar width. -->
-                            <atom:NavMenu AutomationProperties.AutomationId="CategoryTree"
+                            <atom:NavMenu x:Name="CategoryTree"
+                                          AutomationProperties.AutomationId="CategoryTree"
                                           Mode="Inline"
                                           HorizontalAlignment="Stretch"
                                           Padding="0"

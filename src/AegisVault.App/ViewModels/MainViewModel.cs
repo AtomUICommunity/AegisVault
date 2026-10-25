@@ -1516,7 +1516,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             '|',
             _vault.Categories
                 .OrderBy(category => category.Id)
-                .Select(category => $"{category.Id:D}:{category.ParentId:D}:{category.Name}"))
+                .Select(category => $"{category.Id:D}:{category.ParentId:D}:{category.SortOrder}:{category.Name}"))
            + $"|uncat:{HasUncategorizedView}";
 
     private void RefreshCategoryNodeItems()
@@ -1572,7 +1572,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private List<Category> SortedChildrenOf(Guid? parentId)
         => _vault.Categories
             .Where(category => category.ParentId == parentId)
-            .OrderBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(category => category.SortOrder > 0 ? category.SortOrder : int.MaxValue)
+            .ThenBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static CategoryNavNode? FindNode(IEnumerable<CategoryNavNode> nodes, string key)
@@ -1881,6 +1882,60 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Ids of a category and everything nested under it.</summary>
     public IReadOnlySet<Guid> GetCategorySubtreeIds(Guid id) => _vault.GetCategorySubtree(id);
+
+    /// <summary>
+    /// Drops <paramref name="id"/> before one of its own siblings (sidebar
+    /// reorder). Returns false when the pair is not a valid drop.
+    /// </summary>
+    public bool TryReorderCategory(Guid id, Guid? beforeId)
+    {
+        if (!_vault.ReorderCategory(id, beforeId))
+        {
+            return false;
+        }
+
+        RefreshCategoryViews();
+        StatusMessage = Loc.T("Main_StatusCategoryReordered");
+        return true;
+    }
+
+    /// <summary>
+    /// Drop handler for the sidebar: onto a row (re-parent into it) or between
+    /// two rows (reorder among siblings). Returns a localized failure reason, or
+    /// null when the drop was applied (or was a harmless no-op).
+    /// </summary>
+    public string? DropCategory(Guid id, Guid? newParentId, Guid? beforeId)
+    {
+        var current = _vault.Categories.FirstOrDefault(candidate => candidate.Id == id);
+        if (current is null)
+        {
+            return Loc.T("Main_CategoryMissing");
+        }
+
+        if (newParentId == current.ParentId)
+        {
+            // Same parent: this is a pure reorder. Appending to the end of the
+            // group needs no comparison; a "before" that is already the next
+            // sibling would otherwise be a pointless write.
+            if (beforeId == id || _vault.ReorderCategory(id, beforeId))
+            {
+                RefreshCategoryViews();
+                StatusMessage = Loc.T("Main_StatusCategoryReordered");
+                return null;
+            }
+
+            return Loc.T("Main_CategoryOperationFailed");
+        }
+
+        return TryMoveCategory(id, newParentId, out var error) ? null : error;
+    }
+
+    /// <summary>
+    /// Whether a drag may end on <paramref name="targetId"/>: not itself, and not
+    /// inside its own subtree (which would detach the branch from the tree).
+    /// </summary>
+    public bool CanDropCategoryOn(Guid id, Guid targetId)
+        => id != targetId && !_vault.GetCategorySubtree(id).Contains(targetId);
 
     /// <summary>Categories that may become the parent of <paramref name="movingId"/>.</summary>
     public IReadOnlyList<CategoryChoice> BuildParentChoices(Guid? movingId)    {
