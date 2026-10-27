@@ -138,8 +138,15 @@
         <Style Selector="Button.chip.active:pointerover">
             <Setter Property="Background" Value="{DynamicResource AegisChipSelectedBrush}" />
         </Style>
-        <!-- Neutral selection/hover (Fluent defaults are blue) -->
+        <!-- Neutral selection/hover for every sidebar list (Fluent defaults are blue).
+             The combined `:selected:pointerover` state needs to win over plain
+             `:pointerover`, so it is declared with an extra class qualifier below
+             (`ListBoxItem:selected:pointerover` beats `ListBoxItem:pointerover` on
+             specificity, but only if the template selector resolves the same part). -->
         <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
         </Style>
         <Style Selector="ListBox.entries ListBoxItem:selected /template/ ContentPresenter">
@@ -148,8 +155,22 @@
         <Style Selector="ListBox.nav ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
         </Style>
+        <Style Selector="ListBox.categories ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
+        </Style>
         <Style Selector="ListBox.entries ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
+        </Style>
+        <!-- Selected AND hovered. Declared last so it overrides the hover rule above:
+             without it, moving the pointer onto the current row made it look unselected. -->
+        <Style Selector="ListBox.nav ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
+        </Style>
+        <Style Selector="ListBox.entries ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
         </Style>
         <!-- Sidebar rows -->
         <Style Selector="ListBox.nav ListBoxItem">
