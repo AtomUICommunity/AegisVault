@@ -82,11 +82,16 @@
                                    FontSize="13"
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
+                        <!-- The actions button only applies to real categories. The pseudo
+                             uncategorized row hides it via opacity (not IsVisible) so the
+                             column keeps its width and the count never shifts between rows. -->
                         <StackPanel Grid.Column="3"
                                     Classes="categoryActions"
                                     Orientation="Horizontal"
                                     Spacing="0"
-                                    VerticalAlignment="Center">
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="{Binding IsUserCategory}"
+                                    Opacity="{Binding IsUserCategory, Converter={x:Static conv:BoolOpacityConverter.Instance}}">
                             <atom:Button ButtonType="Text"
                                          AutomationProperties.AutomationId="CategoryActionsButton"
                                          Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
@@ -98,7 +103,7 @@
                                    Text="{Binding Item.Count}"
                                    FontSize="11"
                                    Opacity="0.5"
-                                   Margin="6,0,0,0"
+                                   Margin="6,0,8,0"
                                    VerticalAlignment="Center" />
                     </Grid>
                     <Border x:Name="CategoryDropBefore"
