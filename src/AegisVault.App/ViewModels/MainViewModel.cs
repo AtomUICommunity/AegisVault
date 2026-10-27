@@ -48,8 +48,16 @@ public sealed record CategoryItem(
     };
 }
 
-/// <summary>ComboBox item for assigning an entry to a category (null = uncategorized).</summary>
-public sealed record CategoryChoice(Guid? Id, string Name);
+/// <summary>
+/// ComboBox / picker item for choosing a category (null id = uncategorized or top level).
+/// <para>
+/// <see cref="Depth"/> is the real nesting level (0 = root) and is what the picker renders
+/// its indent and guide lines from. It used to be encoded by prepending spaces to
+/// <see cref="Name"/>, but a <see cref="Avalonia.Controls.TextBlock"/> collapses leading
+/// whitespace, so every row rendered at the same offset and the hierarchy was invisible.
+/// </para>
+/// </summary>
+public sealed record CategoryChoice(Guid? Id, string Name, int Depth = 0);
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -2170,7 +2178,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 if (!excluded.Contains(category.Id))
                 {
-                    choices.Add(new CategoryChoice(category.Id, new string(' ', depth * 2) + category.Name));
+                    // Depth is carried on the item so the picker can indent and draw its
+                    // guide lines; the name itself stays clean (padding it with spaces used
+                    // to be collapsed by TextBlock and produced a flat-looking list).
+                    // Top-level categories are 1 (the "top level" pseudo entry is 0).
+                    choices.Add(new CategoryChoice(category.Id, category.Name, depth + 1));
                     AddLevel(category.Id, depth + 1);
                 }
             }

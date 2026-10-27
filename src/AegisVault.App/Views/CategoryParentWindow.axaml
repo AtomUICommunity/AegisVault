@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:AegisVault.App.ViewModels"
         xmlns:loc="using:AegisVault.App.Localization"
+        xmlns:conv="using:AegisVault.App.Converters"
         xmlns:controls="using:AegisVault.App.Controls"
         xmlns:atom="https://atomui.net"
         x:Class="AegisVault.App.Views.CategoryParentWindow"
@@ -13,6 +14,20 @@
         Background="{atom:SharedTokenResource ColorBgContainer}"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="40">
+    <Window.Resources>
+        <conv:CategoryPickerIndentConverter x:Key="PickerIndentConverter" />
+        <conv:CategoryGuideLinesConverter x:Key="PickerGuideConverter" />
+    </Window.Resources>
+
+    <Window.Styles>
+        <!-- Indented picker row: guide lines mark the parent chain so nesting is readable
+             at a glance, which a pure pixel offset is not at this depth. -->
+        <Style Selector="ListBox.picker ListBoxItem">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+    </Window.Styles>
+
     <Grid RowDefinitions="40,*,Auto">
         <controls:AegisTitleBar x:Name="TitleBar" Grid.Row="0" ShowIcon="True" />
 
@@ -20,11 +35,39 @@
             <TextBlock x:Name="MessageText" Grid.Row="0" TextWrapping="Wrap" Opacity="0.75" FontSize="12" />
             <ListBox x:Name="ParentList"
                      Grid.Row="1"
+                     Classes="picker"
                      AutomationProperties.AutomationId="CategoryParentList"
                      Background="Transparent">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="vm:CategoryChoice">
-                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <Grid ColumnDefinitions="Auto,Auto,*" Height="24">
+                            <!-- Guide lines: one per *ancestor* (depth - 1), drawn inside the
+                                 indent band so they mark the parent chain without adding to
+                                 the step width. -->
+                            <ItemsControl Grid.Column="0"
+                                          ItemsSource="{Binding Depth, Converter={StaticResource PickerGuideConverter}}"
+                                          VerticalAlignment="Stretch">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="16"
+                                                BorderBrush="{atom:SharedTokenResource ColorBorder}"
+                                                BorderThickness="1,0,0,0"
+                                                Margin="0,2,0,2" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <!-- Indent for this level sits *behind* the guide band so the total
+                                 step stays 16px per level. -->
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding Name}"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center" />
+                        </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
