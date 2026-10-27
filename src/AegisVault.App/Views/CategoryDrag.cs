@@ -170,12 +170,43 @@ internal sealed class CategoryDrag
 
         _marker = null;
 
-        _targetRow?.Classes.Remove("dropTarget");
+        SetDropInto(_targetRow, false);
         _targetRow = null;
 
         _row.Classes.Remove("dragSource");
         _window.HideCategoryDragGhost();
     }
+
+    /// <summary>
+    /// Turns the "this row becomes the new parent" affordance on or off: the row tint
+    /// (a class) plus its inset accent bar (opacity only, so no layout work).
+    /// </summary>
+    private static void SetDropInto(Border? row, bool active)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        if (active)
+        {
+            row.Classes.Add("dropTarget");
+        }
+        else
+        {
+            row.Classes.Remove("dropTarget");
+        }
+
+        if (DropIntoBarOf(row) is { } bar)
+        {
+            bar.SetCurrentValue(Visual.OpacityProperty, active ? 1d : 0d);
+        }
+    }
+
+    private static Border? DropIntoBarOf(Border row)
+        => row.GetVisualDescendants()
+            .OfType<Border>()
+            .FirstOrDefault(candidate => candidate.Name == "CategoryDropIntoBar");
 
     /// <summary>Shows the marker for the row/gap the pointer is over.</summary>
     private void Mark(DropTarget? target)
@@ -189,20 +220,20 @@ internal sealed class CategoryDrag
             }
 
             _marker = null;
-            _targetRow?.Classes.Remove("dropTarget");
+            SetDropInto(_targetRow, false);
             _targetRow = null;
             return;
         }
 
         if (resolved.Into && resolved.ParentId is { } parent)
         {
-            // Re-parent: highlight the row that becomes the new parent.
+            // Re-parent: tint the row that becomes the new parent and show its accent bar.
             var row = RowFor(parent);
             if (!ReferenceEquals(row, _targetRow))
             {
-                _targetRow?.Classes.Remove("dropTarget");
+                SetDropInto(_targetRow, false);
                 _targetRow = row;
-                _targetRow?.Classes.Add("dropTarget");
+                SetDropInto(_targetRow, true);
             }
 
             if (_raisedMarker is not null)
@@ -214,7 +245,7 @@ internal sealed class CategoryDrag
             return;
         }
 
-        _targetRow?.Classes.Remove("dropTarget");
+        SetDropInto(_targetRow, false);
         _targetRow = null;
 
         // The insertion bar lives on the marker row: its top edge for "insert above",
@@ -273,11 +304,15 @@ internal sealed class CategoryDrag
     /// </summary>
     private DropTarget? ResolveDropTarget(MainViewModel viewModel, Point position)
     {
-        var rows = viewModel.CategoryRows
-            .Select(row => (Row: row, Border: row.CategoryId is { } id ? RowFor(id) : FindRowFor(item: row)))
-            .Where(entry => entry.Border is not null)
-            .Select(entry => entry with { Border = entry.Border! })
-            .ToList();
+        var rows = new List<(CategoryTreeRow Row, Border Border)>();
+        foreach (var row in viewModel.CategoryRows)
+        {
+            var border = row.CategoryId is { } id ? RowFor(id) : FindRowFor(item: row);
+            if (border is not null)
+            {
+                rows.Add((row, border));
+            }
+        }
 
         for (var index = 0; index < rows.Count; index++)
         {

@@ -16,6 +16,10 @@
                     <SolidColorBrush x:Key="AegisChipBrush" Color="#F4F4F5" />
                     <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#E7E7E9" />
                     <SolidColorBrush x:Key="AegisCardBorderBrush" Color="Transparent" />
+                    <!-- "Drop into this category": a primary tint that reads as a surface,
+                         deliberately different from the insertion bar used for siblings. -->
+                    <SolidColorBrush x:Key="AegisDropIntoBrush" Color="#D9EEE6" />
+                    <SolidColorBrush x:Key="AegisDropIntoBorderBrush" Color="#0F6B4F" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="AegisSidebarBrush" Color="#0E0E10" />
@@ -25,6 +29,9 @@
                     <SolidColorBrush x:Key="AegisChipBrush" Color="#1B1B1F" />
                     <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#26262B" />
                     <SolidColorBrush x:Key="AegisCardBorderBrush" Color="#232326" />
+                    <!-- Dark counterpart of the "drop into" tint. -->
+                    <SolidColorBrush x:Key="AegisDropIntoBrush" Color="#16352A" />
+                    <SolidColorBrush x:Key="AegisDropIntoBorderBrush" Color="#1F8A63" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

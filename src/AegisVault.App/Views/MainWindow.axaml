@@ -32,9 +32,10 @@
              count. The tree renders CategoryRows as a flat ListBox, so the indent comes
              from CategoryTreeRow.Depth and expanding only inserts/removes rows. -->
         <DataTemplate x:Key="CategoryRowTemplate" DataType="vm:CategoryTreeRow" x:DataType="vm:CategoryTreeRow">
+            <!-- Background/BorderBrush are supplied by the `categoryRowLabel` style, not set
+                 here: a local value on the element wins over a style setter, which silently
+                 broke the drop-target highlight. -->
             <Border Classes="categoryRowLabel"
-                    Background="Transparent"
-                    BorderBrush="Transparent"
                     BorderThickness="1"
                     CornerRadius="6"
                     Cursor="Hand"
@@ -45,6 +46,18 @@
                      it can sit on the row's top edge and stretch the full sidebar width.
                      Code-behind shows it for exactly the row the pointer hovers. -->
                 <Panel>
+                    <!-- Inset accent bar for the "drop into this category" state. It is a
+                         sibling of the content and contributes no width, so showing it never
+                         reflows the row (a thicker border would). -->
+                    <Border x:Name="CategoryDropIntoBar"
+                            Width="3"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Stretch"
+                            CornerRadius="2"
+                            Margin="0,3,0,3"
+                            Opacity="0"
+                            IsHitTestVisible="False"
+                            Background="{DynamicResource AegisDropIntoBorderBrush}" />
                     <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
                           Margin="{Binding Depth, Converter={StaticResource CategoryIndentConverter}}">
                         <!-- Expander column keeps its width for leaves too, so names stay
@@ -179,15 +192,26 @@
             <Setter Property="Opacity" Value="0.6" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <!-- Category row baseline. These live here (not as local values in the template)
+             so state classes like dropTarget can override them. -->
+        <Style Selector="Border.categoryRowLabel">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
         <!-- Category row label: keyboard focus must stay visible without shifting layout
              (the transparent 1px border is always reserved). -->
         <Style Selector="Border.categoryRowLabel:focus">
             <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
         </Style>
-        <!-- Row highlighted as the drop parent ("drag into this category"). -->
+        <!-- Drop target: the row that becomes the new parent. A filled tint plus an inset
+             accent bar on the left, so "drop INTO" is unmistakably different from the thin
+             insertion bar used for sibling reordering. The bar is drawn as an inset box
+             shadow rather than a thicker border, so it cannot shift the row content. -->
         <Style Selector="Border.categoryRowLabel.dropTarget">
-            <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
-            <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
+            <Setter Property="Background" Value="{DynamicResource AegisDropIntoBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AegisDropIntoBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
         </Style>
         <!-- Row left behind by a running drag gesture. -->
         <Style Selector="Border.categoryRowLabel.dragSource">
