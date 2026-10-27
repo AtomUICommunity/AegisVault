@@ -70,7 +70,7 @@ public sealed class CategoryDragTests
         => root.GetVisualDescendants()
             .OfType<Border>()
             .First(candidate => candidate.Classes.Contains("categoryRowLabel")
-                                && candidate.DataContext is CategoryNavNode node
+                                && candidate.DataContext is CategoryTreeRow node
                                 && node.Item.DisplayName == displayName);
 
     private static Point Centre(Border row, Window window)
@@ -263,7 +263,7 @@ public sealed class CategoryDragTests
     /// The flicker the user reported came from rebuilding the whole tree after a
     /// reorder: every row was destroyed and re-created (and every open branch
     /// replayed its expand animation). A reorder must instead keep the other rows'
-    /// controls alive.
+    /// data objects alive, so the list only moves entries instead of rebuilding them.
     /// </summary>
     [Fact]
     public Task ReorderingKeepsEveryOtherRowAlive() => Headless.Run(() =>
@@ -272,21 +272,19 @@ public sealed class CategoryDragTests
         using var _ = vault;
         try
         {
-            var before = new Dictionary<string, Border>
-            {
-                ["Alpha"] = Row(window, "Alpha"),
-                ["Beta"] = Row(window, "Beta"),
-                ["Gamma"] = Row(window, "Gamma"),
-            };
+            var viewModel = (MainViewModel)window.DataContext!;
+            var before = viewModel.CategoryRows
+                .Where(row => row.CategoryId is not null)
+                .ToDictionary(row => row.Item.DisplayName, row => row);
 
             Drag(window, Row(window, "Gamma"), TopEdge(Row(window, "Alpha"), window));
 
             Assert.Equal(["Gamma", "Alpha", "Beta"], SidebarOrder(vault));
 
-            // Alpha and Beta did not move, so their controls must be the same
-            // instances — that is what "no flicker" means structurally.
-            Assert.Same(before["Alpha"], Row(window, "Alpha"));
-            Assert.Same(before["Beta"], Row(window, "Beta"));
+            // Alpha and Beta did not move, so the list must reuse their row objects
+            // rather than rebuilding them — that is what "no flicker" means structurally.
+            Assert.Same(before["Alpha"], viewModel.CategoryRows.Single(row => row.Item.DisplayName == "Alpha"));
+            Assert.Same(before["Beta"], viewModel.CategoryRows.Single(row => row.Item.DisplayName == "Beta"));
         }
         finally
         {

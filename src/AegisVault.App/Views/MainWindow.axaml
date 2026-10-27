@@ -25,44 +25,51 @@
         <conv:CategoryIconConverter x:Key="CategoryIconConverter" />
         <conv:CategoryDotConverter x:Key="CategoryDotConverter" />
         <conv:ThemeIconConverter x:Key="ThemeIconConverter" />
+        <conv:CategoryIndentConverter x:Key="CategoryIndentConverter" />
+        <conv:ExpandArrowTransformConverter x:Key="ExpandArrowTransformConverter" />
 
-        <!-- Category tree row: colour dot, name, per-row action menu and branch count.
-             The view assigns it to every CategoryNavNode (AtomUI falls back to a
-             TreeDataTemplate otherwise, which would render the node itself). -->
-        <DataTemplate x:Key="CategoryRowTemplate" DataType="vm:CategoryNavNode" x:DataType="vm:CategoryNavNode">
-            <!-- The label area selects the category (parents included), while the row's
-                 arrow column stays with the NavMenu and keeps toggling. The Border marks
-                 the pointer press as handled so AtomUI's row activation never runs; the
-                 "…" button inside shields itself the same way. -->
+        <!-- Category tree row: expander, colour dot, name, per-row action menu and branch
+             count. The tree renders CategoryRows as a flat ListBox, so the indent comes
+             from CategoryTreeRow.Depth and expanding only inserts/removes rows. -->
+        <DataTemplate x:Key="CategoryRowTemplate" DataType="vm:CategoryTreeRow" x:DataType="vm:CategoryTreeRow">
             <Border Classes="categoryRowLabel"
                     Background="Transparent"
                     BorderBrush="Transparent"
                     BorderThickness="1"
                     CornerRadius="6"
-                    Focusable="True"
                     Cursor="Hand"
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="{Binding Item.DisplayName}"
-                    PointerPressed="OnCategoryRowLabelPress"
-                    KeyDown="OnCategoryRowLabelKeyDown">
-                <!-- The drop marker is a sibling of the content (not part of the
-                     grid), so it can sit on the row's top edge and stretch the
-                     full sidebar width. Code-behind shows it for exactly the row
-                     the pointer hovers; a binding would need a rebuild per move. -->
+                    PointerPressed="OnCategoryRowLabelPress">
+                <!-- The drop marker is a sibling of the content (not part of the grid), so
+                     it can sit on the row's top edge and stretch the full sidebar width.
+                     Code-behind shows it for exactly the row the pointer hovers. -->
                 <Panel>
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                        <Ellipse Grid.Column="0"
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+                          Margin="{Binding Depth, Converter={StaticResource CategoryIndentConverter}}">
+                        <!-- Expander column keeps its width for leaves too, so names stay
+                             aligned between parent and leaf rows. -->
+                        <Panel Grid.Column="0" Width="16">
+                            <antd:RightOutlined Classes="categoryChevron"
+                                                Width="8" Height="8"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Foreground="{atom:SharedTokenResource ColorTextTertiary}"
+                                                IsVisible="{Binding HasChildren}"
+                                                RenderTransform="{Binding IsExpanded, Converter={StaticResource ExpandArrowTransformConverter}}" />
+                        </Panel>
+                        <Ellipse Grid.Column="1"
                                  Width="8" Height="8"
-                                 Margin="4,0,12,0"
+                                 Margin="2,0,10,0"
                                  VerticalAlignment="Center"
                                  Fill="{Binding Item, Converter={StaticResource CategoryDotConverter}}" />
-                        <TextBlock Grid.Column="1"
+                        <TextBlock Grid.Column="2"
                                    AutomationProperties.AutomationId="CategoryNameText"
                                    Text="{Binding Item.DisplayName}"
                                    FontSize="13"
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="2"
+                        <StackPanel Grid.Column="3"
                                     Classes="categoryActions"
                                     Orientation="Horizontal"
                                     Spacing="0"
@@ -73,7 +80,7 @@
                                          ToolTip.Tip="{loc:Str Main_CategoryActionsTooltip}"
                                          Click="OnCategoryActionsClicked" />
                         </StackPanel>
-                        <TextBlock Grid.Column="3"
+                        <TextBlock Grid.Column="4"
                                    AutomationProperties.AutomationId="CategoryCountText"
                                    Text="{Binding Item.Count}"
                                    FontSize="11"
@@ -240,21 +247,31 @@
                                              ToolTip.Tip="{loc:Str Main_NewCategoryTitle}"
                                              Click="OnNewCategoryClicked" />
                             </Grid>
-                            <!-- Categories render as a nested, collapsible tree; the row template is the
-                                 implicit CategoryNavNode template above and the app owns the inline
-                                 NavMenu header template in Theme/CategoryNavMenu.axaml. The NavMenu
-                                 stretches (its Inline theme defaults to left-aligned) and drops the
-                                 menu content padding so row backgrounds span the sidebar width. -->
-                            <atom:NavMenu x:Name="CategoryTree"
-                                          AutomationProperties.AutomationId="CategoryTree"
-                                          Mode="Inline"
-                                          HorizontalAlignment="Stretch"
-                                          Padding="0"
-                                          Background="Transparent"
-                                          IsItemBackgroundEnabled="False"
-                                          DefaultOpenPaths="{Binding CategoryOpenPaths}"
-                                          ItemsSource="{Binding CategoryNodes}"
-                                          SelectedItem="{Binding SelectedCategoryNode}" />
+                            <!-- Categories render as a flat, collapsible list: the view model
+                                 keeps CategoryRows in display order and only inserts/removes
+                                 rows when a branch opens or closes. A flat list avoids the
+                                 nested-container limitation that used to force a full tree
+                                 rebuild whenever a category changed parent, and it gives
+                                 selection, keyboard navigation and automation support for
+                                 free from ListBox. -->
+                            <ListBox x:Name="CategoryTree"
+                                     Classes="categories"
+                                     AutomationProperties.AutomationId="CategoryTree"
+                                     HorizontalAlignment="Stretch"
+                                     Background="Transparent"
+                                     Padding="0"
+                                     ItemTemplate="{StaticResource CategoryRowTemplate}"
+                                     ItemsSource="{Binding CategoryRows}"
+                                     SelectedItem="{Binding SelectedCategoryRow}">
+                                <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,1" />
+                                        <Setter Property="CornerRadius" Value="6" />
+                                        <Setter Property="MinHeight" Value="30" />
+                                    </Style>
+                                </ListBox.Styles>
+                            </ListBox>
 
 
                             <TextBlock Classes="section" Text="{loc:Str Main_Tags}" />

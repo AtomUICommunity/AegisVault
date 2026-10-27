@@ -734,21 +734,24 @@ public sealed class MainViewModelTests : IDisposable
 
         using var viewModel = new MainViewModel(vault);
 
-        var rootNode = Assert.Single(viewModel.CategoryNodes, node => node.IsUserCategory);
-        Assert.Equal("Work", rootNode.Item.DisplayName);
-        Assert.Equal(3, rootNode.Item.Count);
-        Assert.True(rootNode.Item.HasChildren);
-        Assert.Equal(1, rootNode.Item.Depth);
+        var userRows = viewModel.CategoryRows.Where(row => row.IsUserCategory).ToList();
+        Assert.Equal(["Work", "Servers", "Production"], userRows.Select(row => row.Item.DisplayName));
 
-        var childNode = Assert.Single(rootNode.Entries.OfType<CategoryNavNode>());
-        Assert.Equal(2, childNode.Item.Count);
-        Assert.Equal(2, childNode.Item.Depth);
+        var rootRow = userRows[0];
+        Assert.Equal(3, rootRow.Item.Count);
+        Assert.True(rootRow.HasChildren);
+        Assert.Equal(1, rootRow.Depth);
 
-        var grandChildNode = Assert.Single(childNode.Entries.OfType<CategoryNavNode>());
-        Assert.Equal(1, grandChildNode.Item.Count);
+        var childRow = userRows[1];
+        Assert.Equal(2, childRow.Item.Count);
+        Assert.Equal(2, childRow.Depth);
+
+        var grandChildRow = userRows[2];
+        Assert.Equal(1, grandChildRow.Item.Count);
+        Assert.Equal(3, grandChildRow.Depth);
 
         // Selecting the root filters the whole branch, not just its direct entries.
-        viewModel.SelectedCategoryNode = rootNode;
+        viewModel.SelectedCategoryRow = rootRow;
 
         var titles = viewModel.FilteredEntries.Select(entry => entry.Title).OrderBy(title => title).ToList();
         Assert.Equal(["Prod item", "Server item", "Work item"], titles);
@@ -758,7 +761,7 @@ public sealed class MainViewModelTests : IDisposable
         Assert.Contains(prodEntry.Id, viewModel.FilteredEntries.Select(entry => entry.Id));
 
         // Selecting the child narrows the branch.
-        viewModel.SelectedCategoryNode = childNode;
+        viewModel.SelectedCategoryRow = childRow;
         Assert.Equal(
             ["Prod item", "Server item"],
             viewModel.FilteredEntries.Select(entry => entry.Title).OrderBy(title => title));
@@ -771,17 +774,17 @@ public sealed class MainViewModelTests : IDisposable
         var root = vault.AddCategory("Work");
 
         using var viewModel = new MainViewModel(vault);
-        var rootNode = Assert.Single(viewModel.CategoryNodes, node => node.IsUserCategory);
-        Assert.Equal(0, rootNode.Item.Count);
+        var rootRow = Assert.Single(viewModel.CategoryRows, row => row.IsUserCategory);
+        Assert.Equal(0, rootRow.Item.Count);
 
-        // Entry edits refresh the row data in place: the node instance survives so
-        // the tree keeps its expansion state.
-        viewModel.SelectedCategoryNode = rootNode;
+        // Entry edits refresh the row data in place: the row instance survives so the
+        // tree keeps its expansion state.
+        viewModel.SelectedCategoryRow = rootRow;
         vault.AddEntry(new PasswordEntry { Title = "Later", CategoryId = root.Id });
         viewModel.ReloadFromVault();
 
-        Assert.Same(rootNode, Assert.Single(viewModel.CategoryNodes, node => node.IsUserCategory));
-        Assert.Equal(1, rootNode.Item.Count);
+        Assert.Same(rootRow, Assert.Single(viewModel.CategoryRows, row => row.IsUserCategory));
+        Assert.Equal(1, rootRow.Item.Count);
     });
 
     [Fact]
@@ -794,7 +797,7 @@ public sealed class MainViewModelTests : IDisposable
         using var viewModel = new MainViewModel(vault);
 
         // Nothing is uncategorized yet, so the pseudo row must not exist.
-        Assert.DoesNotContain(viewModel.CategoryNodes, node => node.Item.Key == "cat:");
+        Assert.DoesNotContain(viewModel.CategoryRows, row => row.Item.Key == "cat:");
         Assert.DoesNotContain(viewModel.Categories, category => category.Key == "cat:");
 
         // Clearing the category used to leave the sidebar stale until a restart: the
@@ -802,12 +805,12 @@ public sealed class MainViewModelTests : IDisposable
         vault.UpdateEntry(entry with { CategoryId = null });
         viewModel.ReloadFromVault();
 
-        var uncategorized = Assert.Single(viewModel.CategoryNodes, node => node.Item.Key == "cat:");
+        var uncategorized = Assert.Single(viewModel.CategoryRows, row => row.Item.Key == "cat:");
         Assert.Equal(1, uncategorized.Item.Count);
         Assert.False(uncategorized.IsUserCategory);
 
         // The row filters the uncategorized entries.
-        viewModel.SelectedCategoryNode = uncategorized;
+        viewModel.SelectedCategoryRow = uncategorized;
         Assert.Equal("Only", Assert.Single(viewModel.FilteredEntries).Title);
     });
 
@@ -819,17 +822,17 @@ public sealed class MainViewModelTests : IDisposable
         var only = vault.AddEntry(new PasswordEntry { Title = "Unfiled" });
 
         using var viewModel = new MainViewModel(vault);
-        var uncategorized = Assert.Single(viewModel.CategoryNodes, node => node.Item.Key == "cat:");
+        var uncategorized = Assert.Single(viewModel.CategoryRows, row => row.Item.Key == "cat:");
         Assert.Equal(1, uncategorized.Item.Count);
 
-        viewModel.SelectedCategoryNode = uncategorized;
+        viewModel.SelectedCategoryRow = uncategorized;
         Assert.False(viewModel.IsViewAll);
 
         // Deleting the last uncategorized entry used to leave a stale "1" behind.
         Assert.True(vault.DeleteEntry(only.Id));
         viewModel.ReloadFromVault();
 
-        Assert.DoesNotContain(viewModel.CategoryNodes, node => node.Item.Key == "cat:");
+        Assert.DoesNotContain(viewModel.CategoryRows, row => row.Item.Key == "cat:");
         Assert.DoesNotContain(viewModel.Categories, category => category.Key == "cat:");
         Assert.True(viewModel.IsViewAll);
     });
@@ -848,15 +851,14 @@ public sealed class MainViewModelTests : IDisposable
         Assert.True(viewModel.TryMoveCategory(servers.CategoryId!.Value, work.CategoryId, out var moveError));
         Assert.Null(moveError);
 
-        var rootNode = viewModel.CategoryNodes.Single(node => node.IsUserCategory);
-        Assert.Equal("Work", rootNode.Item.DisplayName);
-        Assert.Equal("Servers", Assert.Single(rootNode.Entries.OfType<CategoryNavNode>()).Item.DisplayName);
+        var userRows = viewModel.CategoryRows.Where(row => row.IsUserCategory).ToList();
+        Assert.Equal(["Work", "Servers"], userRows.Select(row => row.Item.DisplayName));
+        Assert.Equal(2, userRows[1].Depth);
 
         // Merging folds the child back into its parent and drops the source.
         Assert.True(viewModel.TryMergeCategory(servers.CategoryId!.Value, work.CategoryId!.Value, out var mergeError));
         Assert.Null(mergeError);
-        Assert.Single(viewModel.CategoryNodes, node => node.IsUserCategory);
-        Assert.Empty(viewModel.CategoryNodes[0].Entries);
+        Assert.Single(viewModel.CategoryRows, row => row.IsUserCategory);
         Assert.DoesNotContain(viewModel.Categories, category => category.DisplayName == "Servers");
     });
 

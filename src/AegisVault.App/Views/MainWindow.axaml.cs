@@ -101,7 +101,7 @@ public partial class MainWindow : Window
     /// <summary>The row <c>Border</c> that renders a category, or null when not realised.</summary>
     internal Border? FindCategoryRow(Guid categoryId)
         => GetCategoryRows()
-            .FirstOrDefault(candidate => candidate.DataContext is CategoryNavNode node &&
+            .FirstOrDefault(candidate => candidate.DataContext is CategoryTreeRow node &&
                                          node.Item.CategoryId == categoryId);
 
     /// <summary>
@@ -114,7 +114,7 @@ public partial class MainWindow : Window
         var positions = new Dictionary<Guid, double>();
         foreach (var row in GetCategoryRows())
         {
-            if (row.DataContext is CategoryNavNode { Item.CategoryId: { } id } &&
+            if (row.DataContext is CategoryTreeRow { Item.CategoryId: { } id } &&
                 row.TranslatePoint(new Point(0, 0), CategoryTree) is { } top)
             {
                 positions[id] = top.Y;
@@ -151,7 +151,7 @@ public partial class MainWindow : Window
             var offsets = new List<(Border Row, double Delta)>();
             foreach (var row in GetCategoryRows())
             {
-                if (row.DataContext is not CategoryNavNode { Item.CategoryId: { } id } ||
+                if (row.DataContext is not CategoryTreeRow { Item.CategoryId: { } id } ||
                     !previous.TryGetValue(id, out var oldTop) ||
                     row.TranslatePoint(new Point(0, 0), CategoryTree) is not { } current)
                 {
@@ -263,58 +263,31 @@ public partial class MainWindow : Window
     internal void HideCategoryDragGhost() => CategoryDragGhost.IsVisible = false;
 
 
-    private MainViewModel? _categoryNodesViewModel;
+    private MainViewModel? _categoryRowsViewModel;
 
     /// <summary>
-    /// Assigns the row template to every category node. AtomUI only uses a node's
-    /// own template, and falls back to a TreeDataTemplate that would render the
-    /// node object itself, so the view owns this wiring (and re-applies it when
-    /// the tree is rebuilt).
+    /// Watches the flat row list so an in-flight drag is dropped when rows are rebuilt
+    /// (the markers would otherwise point at controls that left the tree).
     /// </summary>
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
 
-        if (_categoryNodesViewModel is not null)
+        if (_categoryRowsViewModel is not null)
         {
-            _categoryNodesViewModel.CategoryNodes.CollectionChanged -= OnCategoryNodesChanged;
-            _categoryNodesViewModel = null;
+            _categoryRowsViewModel.CategoryRows.CollectionChanged -= OnCategoryRowsChanged;
+            _categoryRowsViewModel = null;
         }
 
         if (DataContext is MainViewModel viewModel)
         {
-            _categoryNodesViewModel = viewModel;
-            viewModel.CategoryNodes.CollectionChanged += OnCategoryNodesChanged;
-            ApplyCategoryRowTemplates(viewModel);
+            _categoryRowsViewModel = viewModel;
+            viewModel.CategoryRows.CollectionChanged += OnCategoryRowsChanged;
         }
     }
 
-    private void OnCategoryNodesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        // A rebuild replaces every row, so any drag markers point at controls that
-        // are no longer in the tree; drop the gesture instead of leaking them.
-        CancelCategoryDrag();
-        ApplyCategoryRowTemplates(_categoryNodesViewModel);
-    }
-
-    private void ApplyCategoryRowTemplates(MainViewModel? viewModel)
-    {
-        if (viewModel is null || Resources["CategoryRowTemplate"] is not IDataTemplate template)
-        {
-            return;
-        }
-
-        Apply(viewModel.CategoryNodes);
-
-        void Apply(IEnumerable<CategoryNavNode> nodes)
-        {
-            foreach (var node in nodes)
-            {
-                node.HeaderTemplate = template;
-                Apply(node.Entries.OfType<CategoryNavNode>());
-            }
-        }
-    }
+    private void OnCategoryRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        => CancelCategoryDrag();
 
     public void ShowLockOverlay()
     {
@@ -634,14 +607,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Category rows select from their label area (parents included — AtomUI treats a
-    /// row with children as a submenu header and would only toggle it). Marking the
-    /// press handled keeps the NavMenu's row activation out of the way, while the
-    /// arrow column and the row padding still reach the control and toggle.
+    /// A category row press selects it, toggles the branch when the chevron is hit, and
+    /// arms the drag gesture. The press is marked handled so the ListBoxItem does not
+    /// also process it; selection is applied explicitly here.
     /// <para>
-    /// The same press may start a drag (see <see cref="CategoryDrag"/>): the gesture
-    /// only arms here, and the first move past the threshold turns it into a drag, so
-    /// a plain click behaves exactly as before.
+    /// The same press may start a drag (see <see cref="CategoryDrag"/>): the gesture only
+    /// arms here, and the first move past the threshold turns it into a drag, so a plain
+    /// click behaves exactly like a click.
     /// </para>
     /// </summary>
     private void OnCategoryRowLabelPress(object? sender, PointerPressedEventArgs e)
@@ -654,31 +626,72 @@ public partial class MainWindow : Window
         e.Handled = true;
         SelectCategoryRow(sender);
 
-        if (sender is Border { DataContext: CategoryNavNode node } row && node.IsUserCategory)
+        if (sender is not Border { DataContext: CategoryTreeRow row } border)
         {
-            _drag = CategoryDrag.Arm(this, node, row, e);
+            CancelCategoryDrag();
+            return;
+        }
+
+        // Hitting the chevron column expands/collapses instead of starting a drag. The
+        // chevron is the leading column of the indented grid, so its hit band starts at
+        // the row's indent and spans the chevron width.
+        var position = e.GetPosition(border);
+        var indent = Math.Max(0, row.Depth - 1) * AegisVault.App.Converters.CategoryIndentConverter.IndentPerLevel;
+        if (row.HasChildren &&
+            position.X >= indent &&
+            position.X <= indent + ChevronHitWidth)
+        {
+            (DataContext as MainViewModel)?.ToggleCategoryExpansion(row);
+            CancelCategoryDrag();
+            return;
+        }
+
+        if (row.IsUserCategory)
+        {
+            _drag = CategoryDrag.Arm(this, row, border, e);
             return;
         }
 
         CancelCategoryDrag();
     }
 
+    /// <summary>Width of the leading chevron column that toggles a branch.</summary>
+    private const double ChevronHitWidth = 18;
+
+    /// <summary>
+    /// Keyboard support for the sidebar tree: Left/Right collapse/expand the focused
+    /// branch. Up/Down and Home/End already come from the ListBox.
+    /// </summary>
     private void OnCategoryRowLabelKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key is not (Key.Enter or Key.Space))
+        if (sender is not Border { DataContext: CategoryTreeRow row } ||
+            DataContext is not MainViewModel viewModel)
         {
             return;
         }
 
-        e.Handled = true;
-        SelectCategoryRow(sender);
+        switch (e.Key)
+        {
+            case Key.Right when row.HasChildren && !row.IsExpanded:
+                e.Handled = true;
+                viewModel.ToggleCategoryExpansion(row);
+                break;
+            case Key.Left when row.HasChildren && row.IsExpanded:
+                e.Handled = true;
+                viewModel.ToggleCategoryExpansion(row);
+                break;
+            case Key.Enter or Key.Space:
+                e.Handled = true;
+                SelectCategoryRow(sender);
+                break;
+        }
     }
 
     private void SelectCategoryRow(object? sender)
     {
-        if (sender is Control { DataContext: CategoryNavNode node } && DataContext is MainViewModel viewModel)
+        if (sender is Control { DataContext: CategoryTreeRow row } && DataContext is MainViewModel viewModel)
         {
-            viewModel.SelectedCategoryNode = node;
+            viewModel.SelectedCategoryRow = row;
         }
     }
 
@@ -688,7 +701,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnCategoryActionsClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: CategoryNavNode node } button ||
+        if (sender is not Button { DataContext: CategoryTreeRow node } button ||
             DataContext is not MainViewModel viewModel ||
             node.Item.CategoryId is not { } id)
         {
@@ -709,7 +722,7 @@ public partial class MainWindow : Window
         move.Click += async (_, _) => await MoveCategoryAsync(id, node.Item);
         flyout.Items.Add(move);
 
-        if (viewModel.CategoryNodes.Count > 1)
+        if (viewModel.CategoryRows.Count > 1)
         {
             var merge = new AtomUIMenuItem { Header = Loc.T("Main_MergeCategory") };
             merge.Click += async (_, _) => await MergeCategoryAsync(id, node.Item);

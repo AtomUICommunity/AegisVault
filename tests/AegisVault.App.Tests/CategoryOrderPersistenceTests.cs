@@ -48,7 +48,7 @@ public sealed class CategoryOrderPersistenceTests
 
                 Border Row(string name) => window.GetVisualDescendants().OfType<Border>()
                     .First(candidate => candidate.Classes.Contains("categoryRowLabel")
-                                        && candidate.DataContext is CategoryNavNode node
+                                        && candidate.DataContext is CategoryTreeRow node
                                         && node.Item.DisplayName == name);
 
                 var source = Row("Gamma");

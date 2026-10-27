@@ -42,7 +42,7 @@ internal sealed class CategoryDrag
     private readonly record struct DropTarget(Guid? ParentId, Guid? BeforeId, bool Into);
 
     private readonly MainWindow _window;
-    private readonly CategoryNavNode _node;
+    private readonly CategoryTreeRow _node;
     private readonly Border _row;
     private readonly Point _origin;
     private Border? _marker;
@@ -52,7 +52,7 @@ internal sealed class CategoryDrag
     /// <summary>The last marker we raised, so a move within the same band is a no-op.</summary>
     private Border? _raisedMarker;
 
-    private CategoryDrag(MainWindow window, CategoryNavNode node, Border row, Point origin)
+    private CategoryDrag(MainWindow window, CategoryTreeRow node, Border row, Point origin)
     {
         _window = window;
         _node = node;
@@ -71,7 +71,7 @@ internal sealed class CategoryDrag
     /// Arms the gesture for a row press and captures the pointer to the window, so
     /// the whole gesture is delivered even outside the sidebar.
     /// </summary>
-    public static CategoryDrag Arm(MainWindow window, CategoryNavNode node, Border row, PointerPressedEventArgs e)
+    public static CategoryDrag Arm(MainWindow window, CategoryTreeRow node, Border row, PointerPressedEventArgs e)
     {
         var gesture = new CategoryDrag(window, node, row, e.GetPosition(row));
         e.Pointer.Capture(window);
@@ -234,7 +234,7 @@ internal sealed class CategoryDrag
     /// </summary>
     private DropTarget? ResolveDropTarget(MainViewModel viewModel, Point position)
     {
-        foreach (var node in viewModel.CategoryNodes.SelectMany(Flatten))
+        foreach (var node in viewModel.CategoryRows)
         {
             if (node.Item.CategoryId is not { } id || !node.IsUserCategory)
             {
@@ -267,16 +267,6 @@ internal sealed class CategoryDrag
 
         // Below the last row: append to the top level.
         return new DropTarget(null, null, Into: false);
-
-        static IEnumerable<CategoryNavNode> Flatten(CategoryNavNode node)
-        {
-            yield return node;
-
-            foreach (var child in node.Entries.OfType<CategoryNavNode>().SelectMany(Flatten))
-            {
-                yield return child;
-            }
-        }
     }
 
     private Border? RowFor(Guid categoryId)

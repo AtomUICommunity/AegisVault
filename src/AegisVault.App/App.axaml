@@ -7,9 +7,6 @@
 
     <Application.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceInclude Source="avares://AegisVault.App/Theme/CategoryNavMenu.axaml" />
-            </ResourceDictionary.MergedDictionaries>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="AegisSidebarBrush" Color="#FBFBFC" />
@@ -50,13 +47,13 @@
         </Style>
 
         <!-- Category rows: the per-row action menu only shows on hover/selection. -->
-        <Style Selector="atom|InlineNavMenuItemHeader StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem StackPanel.categoryActions">
             <Setter Property="Opacity" Value="0" />
         </Style>
-        <Style Selector="atom|InlineNavMenuItemHeader:pointerover StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem:pointerover StackPanel.categoryActions">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="atom|InlineNavMenuItemHeader[IsSelected=True] StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem:selected StackPanel.categoryActions">
             <Setter Property="Opacity" Value="1" />
         </Style>
     </Application.Styles>
