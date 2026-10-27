@@ -12,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.Controls.Templates;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Media.Transformation;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -872,12 +873,25 @@ public partial class MainWindow : Window
 
         flyout.Items.Add(new MenuSeparator());
 
-        var delete = new AtomUIMenuItem { Header = Loc.T("Main_DeleteCategoryTooltip") };
+        var delete = new AtomUIMenuItem
+        {
+            Header = Loc.T("Main_DeleteCategoryTooltip"),
+            Foreground = new SolidColorBrush(DangerColor()),
+        };
         delete.Click += async (_, _) => await DeleteCategoryAsync(id, node.Item);
         flyout.Items.Add(delete);
 
         flyout.ShowAt(button);
     }
+
+    /// <summary>
+    /// The error token for a destructive menu item. Resolved through the theme tokens rather
+    /// than a hard-coded colour so both appearances stay readable.
+    /// </summary>
+    private static Color DangerColor()
+        => AppTheme.TokenColor(
+            "ColorError",
+            Application.Current?.ActualThemeVariant == ThemeVariant.Dark ? ThemeVariant.Dark : ThemeVariant.Light);
 
     private async Task CreateChildCategoryAsync(Guid parentId, CategoryItem parent)
     {

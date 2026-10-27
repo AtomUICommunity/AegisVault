@@ -88,4 +88,11 @@ public sealed record AppPreferences
 
     /// <summary>"ok" or "failed:&lt;code&gt;" of the last attempt; never contains secrets.</summary>
     public string? BackupLastResult { get; init; }
+
+    /// <summary>
+    /// Category ids the user collapsed in the sidebar tree, as "D"-format GUIDs.
+    /// Branches are expanded by default, so this stores the exceptions only. Stale ids
+    /// (deleted categories) are harmless and dropped on the next save.
+    /// </summary>
+    public IReadOnlyList<string>? CollapsedCategoryIds { get; init; }
 }

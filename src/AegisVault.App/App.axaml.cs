@@ -338,6 +338,16 @@ public partial class App : Application
         viewModel.LanguagePreference = _preferences.Language;
         viewModel.AttachAppearanceCallbacks(ApplyTheme, ApplyLanguage);
 
+        // Collapsed branches survive a restart (plaintext preference, no migration):
+        // branches are expanded by default, so only the exceptions are stored.
+        viewModel.AttachCategoryExpansionStore(
+            _preferences.CollapsedCategoryIds ?? [],
+            collapsed =>
+            {
+                _preferences = _preferences with { CollapsedCategoryIds = collapsed };
+                SavePreferences();
+            });
+
         // "Remember this device" is best effort; tell the user when it failed
         // instead of leaving them with a silently missing device key.
         if (unlockWindow?.DataContext is ViewModels.UnlockViewModel { RememberDeviceFailed: true })

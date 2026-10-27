@@ -223,6 +223,42 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private CategoryTreeRow? selectedCategoryRow;
 
+    /// <summary>
+    /// Persists the set of collapsed category ids. Injected by the shell so the view model
+    /// never touches the plaintext preferences file directly.
+    /// </summary>
+    private Action<IReadOnlyList<string>>? _persistCollapsedCategories;
+
+    /// <summary>
+    /// Loads the collapsed set saved last session. Called by the shell before the tree is
+    /// built so the first render already matches what the user left behind.
+    /// </summary>
+    public void AttachCategoryExpansionStore(IEnumerable<string> collapsedIds, Action<IReadOnlyList<string>> persist)
+    {
+        _persistCollapsedCategories = persist;
+
+        foreach (var value in collapsedIds)
+        {
+            if (Guid.TryParse(value, out var id))
+            {
+                _collapsedCategories.Add(id);
+            }
+        }
+
+        // The rows may already have been built (the tree is constructed eagerly), so
+        // rebuild them against the restored expansion state. Clearing the signature forces
+        // that instead of the incremental "only data changed" path.
+        _categoryTreeSignature = null;
+        RebuildCategoryNodes();
+    }
+
+    /// <summary>GUIDs of the collapsed branches, for the shell to persist.</summary>
+    private IReadOnlyList<string> CollapsedCategoryIds()
+        => _collapsedCategories.Select(id => id.ToString("D")).ToList();
+
+    private void SaveCollapsedCategories()
+        => _persistCollapsedCategories?.Invoke(CollapsedCategoryIds());
+
     /// <summary>True while the view-model pushes a selection into the sidebar.</summary>
     private bool _syncingCategorySelection;
 
@@ -1525,6 +1561,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         row.IsExpanded = expanded;
         SyncCategoryRows();
+        SaveCollapsedCategories();
     }
 
     /// <summary>
@@ -1862,6 +1899,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
                 SyncCategoryRows();
                 RestoreSelectedCategoryRow();
+                SaveCollapsedCategories();
                 StatusMessage = Loc.T("Main_StatusCategoryMoved");
                 return true;
             }
@@ -1953,6 +1991,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (changed)
         {
             SyncCategoryRows();
+            SaveCollapsedCategories();
         }
     }
 

@@ -61,7 +61,10 @@ public sealed class AppPreferencesStore
                     43200),
                 // Materialise the null-means-enabled default so saved files carry
                 // an explicit value instead of "null".
-                BackupLocalEnabled = preferences.LocalBackupEnabled,            };
+                BackupLocalEnabled = preferences.LocalBackupEnabled,
+                // Source-generated JSON leaves missing collections null; the tree treats
+                // null as "nothing collapsed", so normalise it here as well.
+                CollapsedCategoryIds = preferences.CollapsedCategoryIds ?? [],            };
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
         {
