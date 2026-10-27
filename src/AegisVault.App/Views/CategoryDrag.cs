@@ -39,7 +39,18 @@ internal sealed class CategoryDrag
     /// <param name="ParentId">Parent the moved category ends up under.</param>
     /// <param name="BeforeId">Sibling it is inserted before, or null to append.</param>
     /// <param name="Into">True when the pointer is over a row (re-parent).</param>
-    private readonly record struct DropTarget(Guid? ParentId, Guid? BeforeId, bool Into);
+    /// <param name="MarkerRowId">
+    /// Category whose row shows the insertion bar. It can be the row the pointer is over
+    /// <em>or</em> its predecessor, because the bar is drawn on the top edge — so a drop
+    /// below the last row still gets a line, on that last row's bottom half.
+    /// </param>
+    /// <param name="MarkerAtBottom">Draw the bar on the marker row's bottom edge.</param>
+    private readonly record struct DropTarget(
+        Guid? ParentId,
+        Guid? BeforeId,
+        bool Into,
+        Guid? MarkerRowId = null,
+        bool MarkerAtBottom = false);
 
     private readonly MainWindow _window;
     private readonly CategoryTreeRow _node;
@@ -206,18 +217,25 @@ internal sealed class CategoryDrag
         _targetRow?.Classes.Remove("dropTarget");
         _targetRow = null;
 
-        var marker = resolved.BeforeId is { } before && RowFor(before) is { } markerRow
+        // The insertion bar lives on the marker row: its top edge for "insert above",
+        // its bottom edge for "insert below / append".
+        var marker = resolved.MarkerRowId is { } markerId && RowFor(markerId) is { } markerRow
             ? DropMarkerOf(markerRow)
             : null;
 
+        if (marker is not null)
+        {
+            PositionMarker(marker, resolved.MarkerAtBottom);
+        }
+
         if (ReferenceEquals(marker, _raisedMarker))
         {
-            // Same band as the previous move: nothing to animate. This is what keeps a
-            // slow drag from re-triggering work on every pixel.
+            // Same bar in the same place: nothing to animate. This is what keeps a slow
+            // drag from re-triggering work on every pixel.
             return;
         }
 
-        if (_raisedMarker is not null)
+        if (_raisedMarker is not null && !ReferenceEquals(_raisedMarker, marker))
         {
             _raisedMarker.SetCurrentValue(Visual.OpacityProperty, 0d);
         }
@@ -228,46 +246,140 @@ internal sealed class CategoryDrag
     }
 
     /// <summary>
-    /// Maps a point in window coordinates to a drop target. The top quarter of a row
-    /// inserts above it (also the only way to drop at the very top of the tree), the
-    /// rest of the row drops into it.
+    /// Puts the insertion bar on the marker row's top or bottom edge. Uses
+    /// <see cref="Visual.RenderTransform"/> (composited) instead of a margin change, so
+    /// moving the bar between rows never invalidates layout.
+    /// </summary>
+    private static void PositionMarker(Border marker, bool atBottom)
+    {
+        marker.VerticalAlignment = atBottom
+            ? Avalonia.Layout.VerticalAlignment.Bottom
+            : Avalonia.Layout.VerticalAlignment.Top;
+    }
+
+    /// <summary>
+    /// Maps a point in window coordinates to a drop target.
+    /// <para>
+    /// The pointer row is split into three bands: the top quarter inserts above the row,
+    /// the bottom quarter inserts below it, and the middle half drops <em>into</em> it.
+    /// The bottom band is what makes "append at the end" visible — without it a drop
+    /// below the last category showed no line at all.
+    /// </para>
+    /// <para>
+    /// The uncategorized pseudo row has no category id, so it cannot be a re-parent
+    /// target; it still participates as an <em>insertion reference</em>, which is why a
+    /// category can now be dropped at the very end of the list.
+    /// </para>
     /// </summary>
     private DropTarget? ResolveDropTarget(MainViewModel viewModel, Point position)
     {
-        foreach (var node in viewModel.CategoryRows)
+        var rows = viewModel.CategoryRows
+            .Select(row => (Row: row, Border: row.CategoryId is { } id ? RowFor(id) : FindRowFor(item: row)))
+            .Where(entry => entry.Border is not null)
+            .Select(entry => entry with { Border = entry.Border! })
+            .ToList();
+
+        for (var index = 0; index < rows.Count; index++)
         {
-            if (node.Item.CategoryId is not { } id || !node.IsUserCategory)
+            var (node, border) = rows[index];
+            if (border.TranslatePoint(new Point(0, 0), _window) is not { } top)
             {
                 continue;
             }
 
-            if (RowFor(id) is not { } row ||
-                row.TranslatePoint(new Point(0, 0), _window) is not { } top)
+            var height = border.Bounds.Height;
+            if (height <= 0)
             {
                 continue;
             }
 
-            if (position.Y < top.Y)
+            var bottom = top.Y + height;
+            if (position.Y >= bottom)
             {
-                return new DropTarget(node.Item.ParentId, id, Into: false);
+                continue;
             }
 
-            if (position.Y <= top.Y + row.Bounds.Height)
+            var into = node.Item.CategoryId is { } id && node.IsUserCategory;
+
+            if (position.Y < top.Y + (height / 4))
             {
-                if (position.Y <= top.Y + row.Bounds.Height / 4)
+                // Insert above this row: same parent, before it.
+                if (into)
                 {
-                    return new DropTarget(node.Item.ParentId, id, Into: false);
+                    return new DropTarget(node.Item.ParentId, node.Item.CategoryId, Into: false, node.Item.CategoryId);
                 }
 
-                return viewModel.CanDropCategoryOn(DraggedId, id)
-                    ? new DropTarget(id, null, Into: true)
-                    : null;
+                // Pseudo row: insert before the previous real category (or at the end).
+                return AppendAfter(index - 1);
             }
+
+            if (position.Y >= bottom - (height / 4))
+            {
+                // Insert below this row: same parent, after it.
+                if (into)
+                {
+                    return InsertAfter(index);
+                }
+
+                return AppendAfter(index - 1);
+            }
+
+            if (!into)
+            {
+                // Middle of the pseudo row: treat it as "append at the end".
+                return AppendAfter(index - 1);
+            }
+
+            return viewModel.CanDropCategoryOn(DraggedId, node.Item.CategoryId!.Value)
+                ? new DropTarget(node.Item.CategoryId, null, Into: true, node.Item.CategoryId)
+                : null;
         }
 
-        // Below the last row: append to the top level.
-        return new DropTarget(null, null, Into: false);
+        // Below every row: append at the end of the top level, with the bar drawn on the
+        // bottom edge of the last realised row.
+        return AppendAfter(rows.Count - 1);
+
+        DropTarget? AppendAfter(int index)
+        {
+            // Walk back to the nearest row that has a category: the insertion point is
+            // "after that category, under its parent".
+            for (var cursor = index; cursor >= 0; cursor--)
+            {
+                var candidate = rows[cursor].Row;
+                if (candidate.Item.CategoryId is { } id && candidate.IsUserCategory)
+                {
+                    return new DropTarget(candidate.Item.ParentId, null, Into: false, id, MarkerAtBottom: true);
+                }
+            }
+
+            return null;
+        }
+
+        DropTarget? InsertAfter(int index)
+        {
+            var node = rows[index].Row;
+            if (node.Item.CategoryId is not { } id)
+            {
+                return AppendAfter(index - 1);
+            }
+
+            // The next sibling under the same parent; null means "append".
+            var siblings = viewModel.CategoryRows
+                .Where(row => row.Item.ParentId == node.Item.ParentId && row.Item.CategoryId is not null)
+                .ToList();
+            var position = siblings.FindIndex(row => row.Item.CategoryId == id);
+            var next = position >= 0 && position + 1 < siblings.Count
+                ? siblings[position + 1].Item.CategoryId
+                : null;
+
+            return new DropTarget(node.Item.ParentId, next, Into: false, id, MarkerAtBottom: true);
+        }
     }
+
+    /// <summary>The realised row for a tree row that has no category id (uncategorized).</summary>
+    private Border? FindRowFor(CategoryTreeRow item)
+        => _window.GetCategoryRows()
+            .FirstOrDefault(candidate => ReferenceEquals(candidate.DataContext, item));
 
     private Border? RowFor(Guid categoryId)
         => _window.FindCategoryRow(categoryId);

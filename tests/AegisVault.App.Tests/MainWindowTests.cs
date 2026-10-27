@@ -332,7 +332,7 @@ public sealed class MainWindowTests
             }
 
             var topLevel = NameLeft("Work");
-            Assert.Equal(topLevel + 16, NameLeft("Servers"));
+            Assert.Equal(topLevel + Converters.CategoryIndentConverter.IndentPerLevel, NameLeft("Servers"));
             Assert.Equal(topLevel, NameLeft("Personal"));
 
             window.Close();

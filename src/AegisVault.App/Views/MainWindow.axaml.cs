@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Linq;
+using AegisVault.App.Converters;
 using AegisVault.App.Localization;
 using AegisVault.App.Services;
 using AegisVault.App.Theme;
@@ -632,11 +633,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Hitting the chevron column expands/collapses instead of starting a drag. The
-        // chevron is the leading column of the indented grid, so its hit band starts at
-        // the row's indent and spans the chevron width.
+        // Hitting the chevron expands/collapses instead of starting a drag. The row's
+        // content grid is indented by (Depth - 1) steps, and the chevron occupies the
+        // first column of that grid, so its band is [indent, indent + width).
         var position = e.GetPosition(border);
-        var indent = Math.Max(0, row.Depth - 1) * AegisVault.App.Converters.CategoryIndentConverter.IndentPerLevel;
+        var indent = Math.Max(0, row.Depth - 1) * CategoryIndentConverter.IndentPerLevel;
         if (row.HasChildren &&
             position.X >= indent &&
             position.X <= indent + ChevronHitWidth)

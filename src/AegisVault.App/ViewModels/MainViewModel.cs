@@ -195,8 +195,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Shape of the last built tree; entry edits do not rebuild it.</summary>
     private string? _categoryTreeSignature;
 
-    /// <summary>Category ids whose children are currently shown.</summary>
-    private readonly HashSet<Guid> _expandedCategories = [];
+    /// <summary>
+    /// Category ids the user explicitly collapsed. Branches are expanded by default
+    /// (matching the flat list this tree replaced), so tracking the exceptions keeps a
+    /// freshly loaded vault fully open regardless of when the first build happens.
+    /// </summary>
+    private readonly HashSet<Guid> _collapsedCategories = [];
+
 
     public ObservableCollection<CategoryChoice> CategoryChoices { get; } = [];
 
@@ -1455,27 +1460,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// expanded, so collapsing is just leaving rows out.
     /// </summary>
     /// <param name="resetExpansion">
-    /// True to collapse everything first (a reload after the vault changed shape); false
-    /// to keep whatever the user had open.
+    /// True to forget every explicit collapse; false to keep whatever the user had open.
     /// </param>
     private void RebuildCategoryRows(bool resetExpansion)
     {
         if (resetExpansion)
         {
-            _expandedCategories.Clear();
-        }
-        else if (_expandedCategories.Count == 0 && !_expansionInitialised)
-        {
-            // First build: open every branch, matching the flat list this tree replaced.
-            foreach (var category in _vault.Categories)
-            {
-                if (SortedChildrenOf(category.Id).Count > 0)
-                {
-                    _expandedCategories.Add(category.Id);
-                }
-            }
-
-            _expansionInitialised = true;
+            _collapsedCategories.Clear();
         }
 
         CategoryRows.Clear();
@@ -1494,7 +1485,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 var children = SortedChildrenOf(category.Id);
                 var hasChildren = children.Count > 0;
-                var expanded = hasChildren && _expandedCategories.Contains(category.Id);
+                var expanded = hasChildren && !_collapsedCategories.Contains(category.Id);
 
                 CategoryRows.Add(new CategoryTreeRow(
                     RowItemFor(category, depth, hasChildren),
@@ -1510,9 +1501,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>True once the initial "everything expanded" state has been applied.</summary>
-    private bool _expansionInitialised;
-
     /// <summary>
     /// Expands or collapses a category row, inserting or removing only the child rows.
     /// </summary>
@@ -1523,29 +1511,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var expanded = !_expandedCategories.Contains(id);
+        // Collapsed ids are the exception set: removing an id expands the branch, adding
+        // one collapses it.
+        var expanded = _collapsedCategories.Contains(id);
         if (expanded)
         {
-            _expandedCategories.Add(id);
+            _collapsedCategories.Remove(id);
         }
         else
         {
-            RemoveExpansion(id);
+            _collapsedCategories.Add(id);
         }
 
         row.IsExpanded = expanded;
         SyncCategoryRows();
-    }
-
-    /// <summary>Forgets the expansion of a category and everything below it.</summary>
-    private void RemoveExpansion(Guid categoryId)
-    {
-        _expandedCategories.Remove(categoryId);
-
-        foreach (var child in SortedChildrenOf(categoryId))
-        {
-            RemoveExpansion(child.Id);
-        }
     }
 
     /// <summary>
@@ -1621,7 +1600,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 var children = SortedChildrenOf(category.Id);
                 var hasChildren = children.Count > 0;
-                var expanded = hasChildren && _expandedCategories.Contains(category.Id);
+                var expanded = hasChildren && !_collapsedCategories.Contains(category.Id);
 
                 desired.Add(new CategoryTreeRow(
                     RowItemFor(category, depth, hasChildren),
@@ -1842,9 +1821,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 // Flat rows: a re-parent is just a re-sync, so the moved branch appears
                 // under its new parent immediately (no container-rebuild limitation).
+                // The destination is expanded so the moved row is visible right away.
                 if (parentId is { } target)
                 {
-                    _expandedCategories.Add(target);
+                    _collapsedCategories.Remove(target);
                 }
 
                 SyncCategoryRows();
@@ -1929,7 +1909,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         while (current?.ParentId is { } parentId)
         {
-            if (_expandedCategories.Add(parentId))
+            if (_collapsedCategories.Remove(parentId))
             {
                 changed = true;
             }

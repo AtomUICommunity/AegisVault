@@ -5,23 +5,23 @@ using Avalonia.Data.Converters;
 namespace AegisVault.App.Converters;
 
 /// <summary>
-/// Indents a category row by its depth. The inline NavMenu header exposes the
-/// nesting level, and the app owns the row template, so the indent step lives
-/// here instead of depending on the control token.
+/// Indents a category row by its depth. The flat tree exposes the nesting level on each
+/// row, and the app owns the row template, so the indent step lives here.
 /// <para>
-/// AtomUI's <c>Level</c> is zero based (top level = 0, see
-/// <c>NavMenuEntryContainerCoordinator</c>), so the top level stays flush with the
-/// other sidebar lists and every level below adds one step.
+/// <see cref="CategoryTreeRow.Depth"/> is one based (top level = 1) while the top level
+/// must stay flush with the other sidebar lists, so the margin is
+/// <c>(Depth - 1) * IndentPerLevel</c>. The chevron hit band in the code-behind uses the
+/// same formula, which is why the two must agree.
 /// </para>
 /// </summary>
 public sealed class CategoryIndentConverter : IValueConverter
 {
-    public const double IndentPerLevel = 16;
+    public const double IndentPerLevel = 22;
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        var level = value is int depth ? depth : 0;
-        return new Thickness(Math.Max(0, level) * IndentPerLevel, 0, 0, 0);
+        var depth = value is int level ? level : 1;
+        return new Thickness(Math.Max(0, depth - 1) * IndentPerLevel, 0, 0, 0);
     }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
