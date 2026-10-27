@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        HookCategoryExpansionAnimation();
 
         // The sidebar drag gesture is tracked at window level with tunnelled
         // handlers: AtomUI's menu interaction re-captures the pointer to its own
@@ -47,6 +48,94 @@ public partial class MainWindow : Window
         AddHandler(PointerMovedEvent, OnCategoryDragMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnCategoryDragReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerCaptureLostEvent, OnCategoryDragCaptureLost, RoutingStrategies.Tunnel, handledEventsToo: true);
+    }
+
+    /// <summary>
+    /// Duration of the row motion when a branch expands or collapses.
+    /// </summary>
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>How far a brand-new row starts above its slot, in device-independent pixels.</summary>
+    private const double ExpandOffset = 5;
+
+    /// <summary>
+    /// Rows currently running their "new row" fade. The swap slide skips these so the two
+    /// animations never write the same RenderTransform.
+    /// </summary>
+    private readonly HashSet<Control> _appearingRows = [];
+
+    /// <summary>
+    /// Fades and slides a row in when it is newly created by the category list.
+    /// <para>
+    /// Expanding a branch inserts rows into the flat list, so the animation has to hang
+    /// off the container lifecycle. <see cref="ItemsControl.ContainerPrepared"/> is the
+    /// right hook: it fires only for containers that are actually created (not on
+    /// re-measure, not when scrolling an already-realised row), which keeps it from
+    /// animating rows the user did not just reveal.
+    /// </para>
+    /// <para>
+    /// The animation drives the row's inner <c>Border</c>, not the <c>ListBoxItem</c>
+    /// container: the neighbour slide (<see cref="AnimateCategoryRowSwap"/>) also targets
+    /// that border, and writing Opacity/RenderTransform on both layers made the two
+    /// animations composite and left rows stuck at partial opacity.
+    /// </para>
+    /// </summary>
+    private void HookCategoryExpansionAnimation()
+        => CategoryTree.ContainerPrepared += (_, e) =>
+        {
+            if (e.Container is not Control container || AppTheme.ReduceMotion)
+            {
+                return;
+            }
+
+            // The prepared element is the ListBoxItem, and at this moment its template has
+            // not been applied yet, so the row Border does not exist to look up. Animate the
+            // container: it is the element whose opacity/transform composite over the row,
+            // and the neighbour slide targets the row Border underneath, so the two never
+            // write the same property.
+            container.Opacity = 0d;
+            container.RenderTransform = TransformOperations.Parse(
+                $"translate(0px, -{ExpandOffset.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+
+            _appearingRows.Add(container);
+            RunRowAppear(container, _appearingRows);
+        };
+
+    /// <summary>
+    /// Steps a freshly created row from its start state to identity. Drives
+    /// <see cref="Visual.Opacity"/> and <see cref="Visual.RenderTransform"/> per frame,
+    /// both composited, so the sidebar never re-runs layout while the list settles.
+    /// </summary>
+    private static void RunRowAppear(Control container, HashSet<Control> appearing)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
+
+        timer.Tick += (_, _) =>
+        {
+            var progress = Math.Clamp(started.Elapsed.TotalMilliseconds / ExpandDuration.TotalMilliseconds, 0, 1);
+
+            if (progress >= 1 || !container.IsAttachedToVisualTree())
+            {
+                timer.Stop();
+                container.Opacity = 1d;
+                container.RenderTransform = null;
+                appearing.Remove(container);
+                return;
+            }
+
+            // Ease-out cubic: quick departure, soft landing.
+            var eased = 1 - Math.Pow(1 - progress, 3);
+            container.Opacity = eased;
+
+            var offset = -ExpandOffset * (1 - eased);
+            container.RenderTransform = Math.Abs(offset) < 0.2
+                ? null
+                : TransformOperations.Parse(
+                    $"translate(0px, {offset.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+        };
+
+        timer.Start();
     }
 
     private CategoryDrag? _drag;
@@ -136,11 +225,30 @@ public partial class MainWindow : Window
     /// </para>
     /// </summary>
     internal void AnimateCategoryRowSwap(IReadOnlyDictionary<Guid, double> before)
+        => AnimateCategoryRowSwap(before, deferLayout: true);
+
+    /// <param name="deferLayout">
+    /// True to wait for the next layout pass (drag drop, where the collection change was
+    /// just applied); false when the caller has already forced layout.
+    /// </param>
+    internal void AnimateCategoryRowSwap(IReadOnlyDictionary<Guid, double> before, bool deferLayout)
     {
-        // Wait for the layout pass that follows the collection change: the rows only
-        // know their new positions afterwards, and measuring before that would compare
-        // against stale bounds.
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => Animate(before), Avalonia.Threading.DispatcherPriority.Loaded);
+        if (deferLayout)
+        {
+            // The rows only know their new positions after the layout pass that follows the
+            // collection change.
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () =>
+                {
+                    CategoryTree.UpdateLayout();
+                    Animate(before);
+                },
+                Avalonia.Threading.DispatcherPriority.Loaded);
+        }
+        else
+        {
+            Animate(before);
+        }
 
         void Animate(IReadOnlyDictionary<Guid, double> previous)
         {
@@ -161,6 +269,13 @@ public partial class MainWindow : Window
 
                 var delta = oldTop - current.Y;
                 if (Math.Abs(delta) < 0.5)
+                {
+                    continue;
+                }
+
+                // A row that was only just revealed is already running the appear animation
+                // on its container, so it has no previous position to slide from.
+                if (!previous.ContainsKey(id))
                 {
                     continue;
                 }
@@ -642,7 +757,7 @@ public partial class MainWindow : Window
             position.X >= indent &&
             position.X <= indent + ChevronHitWidth)
         {
-            (DataContext as MainViewModel)?.ToggleCategoryExpansion(row);
+            ToggleCategoryBranch(row);
             CancelCategoryDrag();
             return;
         }
@@ -660,6 +775,31 @@ public partial class MainWindow : Window
     private const double ChevronHitWidth = 18;
 
     /// <summary>
+    /// Expands or collapses a branch, then slides the rows that moved into their new
+    /// place. Animating only the newly created rows is not enough: the rows below the
+    /// branch shift by the branch height, and if they jump while the new rows slide the
+    /// whole sidebar appears to wobble under the pointer.
+    /// </summary>
+    private void ToggleCategoryBranch(CategoryTreeRow row)
+    {
+        if (DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        // Sample where every row sits before the list changes shape.
+        var before = CaptureCategoryRowPositions();
+        viewModel.ToggleCategoryExpansion(row);
+
+        // Force the layout pass now, while we are still inside the click handler, so the
+        // rows below already know their new positions. Doing this inside a posted callback
+        // proved unreliable: by the time it ran the deltas could measure as zero and the
+        // neighbours jumped instead of sliding.
+        CategoryTree.UpdateLayout();
+        AnimateCategoryRowSwap(before, deferLayout: false);
+    }
+
+    /// <summary>
     /// Keyboard support for the sidebar tree: Left/Right collapse/expand the focused
     /// branch. Up/Down and Home/End already come from the ListBox.
     /// </summary>
@@ -675,11 +815,11 @@ public partial class MainWindow : Window
         {
             case Key.Right when row.HasChildren && !row.IsExpanded:
                 e.Handled = true;
-                viewModel.ToggleCategoryExpansion(row);
+                ToggleCategoryBranch(row);
                 break;
             case Key.Left when row.HasChildren && row.IsExpanded:
                 e.Handled = true;
-                viewModel.ToggleCategoryExpansion(row);
+                ToggleCategoryBranch(row);
                 break;
             case Key.Enter or Key.Space:
                 e.Handled = true;

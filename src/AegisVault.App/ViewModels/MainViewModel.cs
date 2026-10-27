@@ -1562,7 +1562,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
-        CategoryRows.Clear();
+        // Resolve the wanted row instance for each slot, reusing existing objects so their
+        // containers survive.
+        var resolved = new List<CategoryTreeRow>(desired.Count);
         foreach (var row in desired)
         {
             CategoryTreeRow target;
@@ -1589,7 +1591,38 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 target.IsExpanded = row.IsExpanded;
             }
 
-            CategoryRows.Add(target);
+            resolved.Add(target);
+        }
+
+        // Apply the difference instead of Clear()+Add: clearing the collection detaches
+        // every container, so the rows that stayed visible would blink (their background
+        // is painted by the container). Removing only what left and inserting only what
+        // arrived keeps the rest of the list untouched.
+        for (var index = CategoryRows.Count - 1; index >= 0; index--)
+        {
+            if (!resolved.Contains(CategoryRows[index]))
+            {
+                CategoryRows.RemoveAt(index);
+            }
+        }
+
+        for (var index = 0; index < resolved.Count; index++)
+        {
+            var row = resolved[index];
+            if (index < CategoryRows.Count && ReferenceEquals(CategoryRows[index], row))
+            {
+                continue;
+            }
+
+            var current = CategoryRows.IndexOf(row);
+            if (current >= 0)
+            {
+                CategoryRows.Move(current, index);
+            }
+            else
+            {
+                CategoryRows.Insert(index, row);
+            }
         }
 
         _categoryTreeSignature = CategoryTreeSignature();
