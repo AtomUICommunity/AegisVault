@@ -89,7 +89,7 @@ public sealed class CategoryRowChromeTests
     });
 
     [Fact]
-    public Task TheUncategorizedRowHasNoActionsMenu() => Headless.Run(() =>
+    public Task TheUncategorizedRowNeverShowsAnActionsMenu() => Headless.Run(() =>
     {
         var (window, vm, vault, dir) = Show();
         using var _ = vault;
@@ -103,11 +103,44 @@ public sealed class CategoryRowChromeTests
             Assert.Equal(0d, actions.Opacity);
             Assert.False(actions.IsHitTestVisible);
 
-            // A real category still shows it.
-            var real = Actions(Row(window, "Work"));
-            _out.WriteLine($"real actions opacity={real.Opacity} hitTest={real.IsHitTestVisible}");
-            Assert.Equal(1d, real.Opacity);
-            Assert.True(real.IsHitTestVisible);
+            // Even hovered / selected it must stay hidden: it has no category id, so the
+            // menu would do nothing.
+            pseudo.GetVisualAncestors().OfType<ListBoxItem>().First().IsSelected = true;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            Assert.Equal(0d, Actions(pseudo).Opacity);
+        }
+        finally { Cleanup(window, dir); }
+    });
+
+    [Fact]
+    public Task RealRowsOnlyRevealActionsOnHoverOrSelection() => Headless.Run(() =>
+    {
+        var (window, vm, vault, dir) = Show();
+        using var _ = vault;
+        try
+        {
+            var real = Row(window, "Work");
+            var actions = Actions(real);
+
+            // Resting state: hidden, so the sidebar is not cluttered.
+            _out.WriteLine($"resting opacity={actions.Opacity}");
+            Assert.Equal(0d, actions.Opacity);
+
+            // Selecting the row reveals it.
+            real.GetVisualAncestors().OfType<ListBoxItem>().First().IsSelected = true;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            _out.WriteLine($"selected opacity={Actions(real).Opacity}");
+            Assert.Equal(1d, Actions(real).Opacity);
+
+            // Hovering a different, unselected row reveals that one only.
+            var other = Row(window, "Servers");
+            other.GetVisualAncestors().OfType<ListBoxItem>().First().IsSelected = false;
+            var centre = other.TranslatePoint(
+                new Point(other.Bounds.Width / 2, other.Bounds.Height / 2), window)!.Value;
+            window.MouseMove(centre);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            _out.WriteLine($"hovered opacity={Actions(other).Opacity}");
+            Assert.Equal(1d, Actions(other).Opacity);
         }
         finally { Cleanup(window, dir); }
     });

@@ -73,5 +73,18 @@
         <Style Selector="ListBox.categories ListBoxItem:selected StackPanel.categoryActions">
             <Setter Property="Opacity" Value="1" />
         </Style>
+        <!-- The uncategorized pseudo row has no per-row menu (it has no category id), so it
+             never shows one even when hovered. Declared last so it wins over the rules above;
+             it keeps the column width, which keeps the counts aligned across row kinds. -->
+        <Style Selector="ListBox.categories ListBoxItem StackPanel.categoryActions.noActions">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:pointerover StackPanel.categoryActions.noActions">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:selected StackPanel.categoryActions.noActions">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
     </Application.Styles>
 </Application>

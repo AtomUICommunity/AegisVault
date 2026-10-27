@@ -26,6 +26,7 @@
         <conv:CategoryDotConverter x:Key="CategoryDotConverter" />
         <conv:ThemeIconConverter x:Key="ThemeIconConverter" />
         <conv:CategoryIndentConverter x:Key="CategoryIndentConverter" />
+        <conv:CategoryPickerIndentConverter x:Key="PickerIndentConverter" />
         <conv:ExpandArrowTransformConverter x:Key="ExpandArrowTransformConverter" />
 
         <!-- Category tree row: expander, colour dot, name, per-row action menu and branch
@@ -83,15 +84,16 @@
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
                         <!-- The actions button only applies to real categories. The pseudo
-                             uncategorized row hides it via opacity (not IsVisible) so the
-                             column keeps its width and the count never shifts between rows. -->
+                             uncategorized row hides it through a style class (see App.axaml),
+                             not a local Opacity binding: a local value would outrank the
+                             hover/selected rules and made every row show its "..." at once. -->
                         <StackPanel Grid.Column="3"
                                     Classes="categoryActions"
+                                    Classes.noActions="{Binding !IsUserCategory}"
                                     Orientation="Horizontal"
                                     Spacing="0"
                                     VerticalAlignment="Center"
-                                    IsHitTestVisible="{Binding IsUserCategory}"
-                                    Opacity="{Binding IsUserCategory, Converter={x:Static conv:BoolOpacityConverter.Instance}}">
+                                    IsHitTestVisible="{Binding IsUserCategory}">
                             <atom:Button ButtonType="Text"
                                          AutomationProperties.AutomationId="CategoryActionsButton"
                                          Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
@@ -1269,7 +1271,13 @@
                                                        HorizontalAlignment="Stretch">
                                             <atom:ComboBox.ItemTemplate>
                                                 <DataTemplate DataType="vm:CategoryChoice">
-                                                    <TextBlock Text="{Binding Name}" />
+                                                    <!-- Indent by depth so a category's parent chain is
+                                                         readable; the names themselves can repeat across
+                                                         branches. -->
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Border Width="{Binding Depth, Converter={StaticResource PickerIndentConverter}}" />
+                                                        <TextBlock Text="{Binding Name}" />
+                                                    </StackPanel>
                                                 </DataTemplate>
                                             </atom:ComboBox.ItemTemplate>
                                         </atom:ComboBox>

@@ -1824,12 +1824,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         CategoryChoices.Clear();
         CategoryChoices.Add(new CategoryChoice(null, Loc.T("Main_NoCategory")));
-        foreach (var category in _vault.Categories)
-        {
-            CategoryChoices.Add(new CategoryChoice(category.Id, category.Name));
-        }
+
+        // Same tree order and depths as the sidebar, so the picker shows which category sits
+        // under which instead of an alphabetical flat list.
+        AddLevel(null, 0);
 
         SelectedCategoryChoice = CategoryChoices.FirstOrDefault(choice => choice.Id == selectedId) ?? CategoryChoices[0];
+
+        void AddLevel(Guid? parentId, int depth)
+        {
+            foreach (var category in SortedChildrenOf(parentId))
+            {
+                CategoryChoices.Add(new CategoryChoice(category.Id, category.Name, depth + 1));
+                AddLevel(category.Id, depth + 1);
+            }
+        }
     }
 
     /// <summary>Creates a user category; returns false with a localized reason when invalid.</summary>
@@ -2185,6 +2194,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     choices.Add(new CategoryChoice(category.Id, category.Name, depth + 1));
                     AddLevel(category.Id, depth + 1);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Categories that may receive the contents of <paramref name="mergeId"/> when merging,
+    /// ordered as a tree with real depths. Excludes the source itself and its own subtree
+    /// (merging into itself is meaningless).
+    /// </summary>
+    public IReadOnlyList<CategoryChoice> BuildMergeChoices(Guid mergeId)
+    {
+        var excluded = _vault.GetCategorySubtree(mergeId);
+        var choices = new List<CategoryChoice>();
+        AddLevel(null, 0);
+        return choices;
+
+        void AddLevel(Guid? parentId, int depth)
+        {
+            foreach (var category in SortedChildrenOf(parentId))
+            {
+                if (excluded.Contains(category.Id))
+                {
+                    continue;
+                }
+
+                choices.Add(new CategoryChoice(category.Id, category.Name, depth + 1));
+                AddLevel(category.Id, depth + 1);
             }
         }
     }

@@ -1001,12 +1001,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var choices = viewModel.Categories
-                .Where(category => category.CategoryId is { } candidate &&
-                                   candidate != id &&
-                                   !viewModel.GetCategorySubtreeIds(id).Contains(candidate))
-                .Select(category => new CategoryChoice(category.CategoryId, category.DisplayName))
-                .ToList();
+            var choices = viewModel.BuildMergeChoices(id);
             if (choices.Count == 0)
             {
                 return;
