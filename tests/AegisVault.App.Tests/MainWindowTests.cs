@@ -231,28 +231,29 @@ public sealed class MainWindowTests
             var window = new MainWindow { DataContext = viewModel };
             window.Show();
 
-            var tree = window.GetVisualDescendants().OfType<AtomUI.Desktop.Controls.NavMenu>().FirstOrDefault(
-                candidate => (candidate.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryTree");
+            var tree = CategoryTree(window);
             Assert.NotNull(tree);
 
+            // Every branch starts expanded, so both rows are present from the start.
             var actionButtons = window.GetVisualDescendants().OfType<Button>()
                 .Where(button => (button.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryActionsButton")
                 .ToList();
-            var rootButton = Assert.Single(actionButtons);
-            Assert.Equal("Work", ((ViewModels.CategoryNavNode)rootButton.DataContext!).Item.DisplayName);
+            Assert.Equal(2, actionButtons.Count);
+            Assert.Contains(actionButtons, button => ((ViewModels.CategoryTreeRow)button.DataContext!).Item.DisplayName == "Work");
+            Assert.Contains(actionButtons, button => ((ViewModels.CategoryTreeRow)button.DataContext!).Item.DisplayName == "Servers");
 
-            // Clicking the row (outside the action button) expands the branch and the
-            // nested row brings its own action button.
-            var header = rootButton.GetVisualAncestors().OfType<Control>()
-                .First(candidate => candidate.GetType().Name == "InlineNavMenuItemHeader");
-            var point = header.TranslatePoint(new Point(header.Bounds.Width - 4, header.Bounds.Height / 2), window)!.Value;
-            window.MouseDown(point, MouseButton.Left);
-            window.MouseUp(point, MouseButton.Left);
-            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            // Collapsing the branch through its chevron removes the nested row. The
+            // chevron sits at the left edge of the row, which is also the click target.
+            ClickAt(window, CategoryLabel(window, "Work")!, 6);
+            Assert.Null(CategoryLabel(window, "Servers"));
+
+            // Expanding it again brings the nested row back.
+            ClickAt(window, CategoryLabel(window, "Work")!, 6);
+            Assert.NotNull(CategoryLabel(window, "Servers"));
 
             var nested = window.GetVisualDescendants().OfType<Button>()
                 .Where(button => (button.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryActionsButton")
-                .Select(button => ((ViewModels.CategoryNavNode)button.DataContext!).Item.DisplayName)
+                .Select(button => ((ViewModels.CategoryTreeRow)button.DataContext!).Item.DisplayName)
                 .ToList();
             Assert.Contains("Servers", nested);
 
@@ -302,19 +303,15 @@ public sealed class MainWindowTests
             window.Show();
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-            var tree = window.GetVisualDescendants().OfType<AtomUI.Desktop.Controls.NavMenu>().First(
-                candidate => (candidate.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryTree");
+            var tree = CategoryTree(window);
 
-            // Row backgrounds span the whole menu (the Inline theme left-aligns by default).
-            var headers = tree.GetVisualDescendants().OfType<AtomUI.Desktop.Controls.BaseNavMenuItemHeader>().ToList();
-            Assert.Equal(4, headers.Count);
-            var frames = headers
-                .Select(header => header.GetVisualDescendants().OfType<Control>().First(candidate => candidate.Name == "Frame"))
-                .ToList();
-            Assert.All(frames, frame => Assert.Equal(tree.Bounds.Width, frame.Bounds.Width, 0.5));
+            // Every row fills the sidebar width, so a click anywhere on it selects.
+            var rows = CategoryLabelAll(window);
+            Assert.Equal(4, rows.Count);
+            Assert.All(rows, row => Assert.Equal(tree.Bounds.Width, row.Bounds.Width, 0.5));
 
             // The count sits at the same right edge on a parent row, a leaf row and
-            // the uncategorized row: the reserved arrow column must not shift it.
+            // the uncategorized row: the reserved chevron column must not shift it.
             var countRightEdges = tree.GetVisualDescendants().OfType<Control>()
                 .Where(candidate => (candidate.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryCountText")
                 .Select(count => Math.Round(count.TranslatePoint(new Point(count.Bounds.Width, 0), tree)!.Value.X, 1))
@@ -329,13 +326,13 @@ public sealed class MainWindowTests
                 var name = tree.GetVisualDescendants().OfType<Control>()
                     .First(candidate =>
                         (candidate.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryNameText" &&
-                        candidate.DataContext is ViewModels.CategoryNavNode node &&
+                        candidate.DataContext is ViewModels.CategoryTreeRow node &&
                         node.Item.DisplayName == displayName);
                 return Math.Round(name.TranslatePoint(new Point(0, 0), tree)!.Value.X, 1);
             }
 
             var topLevel = NameLeft("Work");
-            Assert.Equal(topLevel + 16, NameLeft("Servers"));
+            Assert.Equal(topLevel + Converters.CategoryIndentConverter.IndentPerLevel, NameLeft("Servers"));
             Assert.Equal(topLevel, NameLeft("Personal"));
 
             window.Close();
@@ -387,7 +384,8 @@ public sealed class MainWindowTests
             // A parent with children used to be unselectable (AtomUI treats it as a
             // submenu header and only toggles it), so its own entries could never be
             // listed. The label area now selects it and filters the whole branch.
-            ClickAt(window, CategoryLabel(tree, "Work")!, 12);
+            // (Click past the chevron column, which toggles instead of selecting.)
+            ClickAt(window, CategoryLabel(tree, "Work")!, 80);
 
             Assert.Equal("Work", viewModel.SelectedCategory?.DisplayName);
             Assert.Equal(
@@ -395,7 +393,7 @@ public sealed class MainWindowTests
                 viewModel.FilteredEntries.Select(entry => entry.Title).OrderBy(title => title));
 
             // Leaves keep selecting exactly as before.
-            ClickAt(window, CategoryLabel(tree, "Servers")!, 12);
+            ClickAt(window, CategoryLabel(tree, "Servers")!, 80);
 
             Assert.Equal("Servers", viewModel.SelectedCategory?.DisplayName);
             Assert.Equal(["Nested"], viewModel.FilteredEntries.Select(entry => entry.Title));
@@ -443,25 +441,15 @@ public sealed class MainWindowTests
             Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
             var tree = CategoryTree(window);
-            ClickAt(window, CategoryLabel(tree, "Work")!, 12);
+            ClickAt(window, CategoryLabel(tree, "Work")!, 80);
             Assert.Equal("Work", viewModel.SelectedCategory?.DisplayName);
 
-            // The arrow column stays with the NavMenu: it collapses the branch and
-            // must not change the filter. The arrow transform follows IsSubMenuOpen,
-            // so it reports the toggle without racing the collapse animation.
-            var arrow = CategoryArrow(tree, "Work");
-            var expanded = arrow.RenderTransform;
-            Assert.NotNull(expanded);
+            // The chevron collapses the branch without changing the selection, and the
+            // nested row leaves the flat list.
+            Assert.NotNull(CategoryLabel(window, "Servers"));
+            ClickAt(window, CategoryLabel(tree, "Work")!, 6);
 
-            var header = CategoryHeader(tree, "Work");
-            var point = header.TranslatePoint(
-                new Point(header.Bounds.Width - 4, header.Bounds.Height / 2),
-                window) ?? throw new InvalidOperationException("The header is not connected to the window.");
-            window.MouseDown(point, MouseButton.Left);
-            window.MouseUp(point, MouseButton.Left);
-            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-
-            Assert.NotSame(expanded, arrow.RenderTransform);
+            Assert.Null(CategoryLabel(window, "Servers"));
             Assert.Equal("Work", viewModel.SelectedCategory?.DisplayName);
 
             window.Close();
@@ -533,25 +521,27 @@ public sealed class MainWindowTests
         }
     });
 
-    private static AtomUI.Desktop.Controls.NavMenu CategoryTree(Window window)
-        => window.GetVisualDescendants().OfType<AtomUI.Desktop.Controls.NavMenu>()
+    private static ListBox CategoryTree(Window window)
+        => window.GetVisualDescendants().OfType<ListBox>()
             .First(candidate => (candidate.GetValue(AutomationProperties.AutomationIdProperty) as string) == "CategoryTree");
 
     private static Control? CategoryLabel(Visual root, string displayName)
         => root.GetVisualDescendants().OfType<Border>()
             .FirstOrDefault(border => border.Classes.Contains("categoryRowLabel") &&
-                                      border.DataContext is ViewModels.CategoryNavNode node &&
+                                      border.DataContext is ViewModels.CategoryTreeRow node &&
                                       node.Item.DisplayName == displayName);
 
-    private static Control CategoryHeader(Visual root, string displayName)
-        => root.GetVisualDescendants().OfType<Control>()
-            .First(candidate => candidate.GetType().Name == "InlineNavMenuItemHeader" &&
-                                candidate.DataContext is ViewModels.CategoryNavNode node &&
-                                node.Item.DisplayName == displayName);
+    /// <summary>Every realised category row, in display order.</summary>
+    private static List<Border> CategoryLabelAll(Visual root)
+        => root.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("categoryRowLabel"))
+            .ToList();
 
+    /// <summary>The chevron that expands/collapses a parent row.</summary>
     private static Control CategoryArrow(Visual root, string displayName)
-        => CategoryHeader(root, displayName).GetVisualDescendants().OfType<Control>()
-            .First(candidate => candidate.Name == "RowArrow");
+        => CategoryLabel(root, displayName)!
+            .GetVisualDescendants().OfType<Control>()
+            .First(candidate => candidate.Classes.Contains("categoryChevron"));
 
     private static void ClickAt(Window window, Control target, double? x = null)
     {

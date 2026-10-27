@@ -1,7 +1,9 @@
 using System.Collections.Specialized;
 using System.Linq;
+using AegisVault.App.Converters;
 using AegisVault.App.Localization;
 using AegisVault.App.Services;
+using AegisVault.App.Theme;
 using AegisVault.App.ViewModels;
 using AegisVault.Core.Models;
 using Avalonia;
@@ -9,7 +11,11 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Controls.Templates;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Media.Transformation;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using AtomUIMenuItem = AtomUI.Desktop.Controls.MenuItem;
 using AtomUIButton = AtomUI.Desktop.Controls.Button;
 using MenuFlyout = AtomUI.Desktop.Controls.MenuFlyout;
@@ -33,55 +39,371 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        HookCategoryExpansionAnimation();
+
+        // The sidebar drag gesture is tracked at window level with tunnelled
+        // handlers: AtomUI's menu interaction re-captures the pointer to its own
+        // container after a row press, so row-scoped handlers stop seeing moves on
+        // a real desktop even though they work in the headless tests.
+        AddHandler(PointerMovedEvent, OnCategoryDragMoved, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnCategoryDragReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerCaptureLostEvent, OnCategoryDragCaptureLost, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
-    private MainViewModel? _categoryNodesViewModel;
+    /// <summary>
+    /// Duration of the row motion when a branch expands or collapses.
+    /// </summary>
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>How far a brand-new row starts above its slot, in device-independent pixels.</summary>
+    private const double ExpandOffset = 5;
 
     /// <summary>
-    /// Assigns the row template to every category node. AtomUI only uses a node's
-    /// own template, and falls back to a TreeDataTemplate that would render the
-    /// node object itself, so the view owns this wiring (and re-applies it when
-    /// the tree is rebuilt).
+    /// Rows currently running their "new row" fade. The swap slide skips these so the two
+    /// animations never write the same RenderTransform.
+    /// </summary>
+    private readonly HashSet<Control> _appearingRows = [];
+
+    /// <summary>
+    /// Fades and slides a row in when it is newly created by the category list.
+    /// <para>
+    /// Expanding a branch inserts rows into the flat list, so the animation has to hang
+    /// off the container lifecycle. <see cref="ItemsControl.ContainerPrepared"/> is the
+    /// right hook: it fires only for containers that are actually created (not on
+    /// re-measure, not when scrolling an already-realised row), which keeps it from
+    /// animating rows the user did not just reveal.
+    /// </para>
+    /// <para>
+    /// The animation drives the row's inner <c>Border</c>, not the <c>ListBoxItem</c>
+    /// container: the neighbour slide (<see cref="AnimateCategoryRowSwap"/>) also targets
+    /// that border, and writing Opacity/RenderTransform on both layers made the two
+    /// animations composite and left rows stuck at partial opacity.
+    /// </para>
+    /// </summary>
+    private void HookCategoryExpansionAnimation()
+        => CategoryTree.ContainerPrepared += (_, e) =>
+        {
+            if (e.Container is not Control container || AppTheme.ReduceMotion)
+            {
+                return;
+            }
+
+            // The prepared element is the ListBoxItem, and at this moment its template has
+            // not been applied yet, so the row Border does not exist to look up. Animate the
+            // container: it is the element whose opacity/transform composite over the row,
+            // and the neighbour slide targets the row Border underneath, so the two never
+            // write the same property.
+            container.Opacity = 0d;
+            container.RenderTransform = TransformOperations.Parse(
+                $"translate(0px, -{ExpandOffset.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+
+            _appearingRows.Add(container);
+            RunRowAppear(container, _appearingRows);
+        };
+
+    /// <summary>
+    /// Steps a freshly created row from its start state to identity. Drives
+    /// <see cref="Visual.Opacity"/> and <see cref="Visual.RenderTransform"/> per frame,
+    /// both composited, so the sidebar never re-runs layout while the list settles.
+    /// </summary>
+    private static void RunRowAppear(Control container, HashSet<Control> appearing)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
+
+        timer.Tick += (_, _) =>
+        {
+            var progress = Math.Clamp(started.Elapsed.TotalMilliseconds / ExpandDuration.TotalMilliseconds, 0, 1);
+
+            if (progress >= 1 || !container.IsAttachedToVisualTree())
+            {
+                timer.Stop();
+                container.Opacity = 1d;
+                container.RenderTransform = null;
+                appearing.Remove(container);
+                return;
+            }
+
+            // Ease-out cubic: quick departure, soft landing.
+            var eased = 1 - Math.Pow(1 - progress, 3);
+            container.Opacity = eased;
+
+            var offset = -ExpandOffset * (1 - eased);
+            container.RenderTransform = Math.Abs(offset) < 0.2
+                ? null
+                : TransformOperations.Parse(
+                    $"translate(0px, {offset.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+        };
+
+        timer.Start();
+    }
+
+    private CategoryDrag? _drag;
+
+    private void OnCategoryDragMoved(object? sender, PointerEventArgs e)
+    {
+        if (_drag is not { } drag)
+        {
+            return;
+        }
+
+        if (drag.Track(e))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnCategoryDragReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_drag is not { } drag)
+        {
+            return;
+        }
+
+        var started = drag.IsStarted;
+        _drag = null;
+        drag.Release(e);
+
+        if (started)
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnCategoryDragCaptureLost(object? sender, PointerCaptureLostEventArgs e) => CancelCategoryDrag();
+
+    /// <summary>
+    /// Drops any in-flight drag. Called when the tree is rebuilt (every row is
+    /// replaced) and when the window closes, so no marker is left behind.
+    /// </summary>
+    private void CancelCategoryDrag()
+    {
+        _drag?.Cancel();
+        _drag = null;
+    }
+
+    /// <summary>Row <c>Border</c>s of the sidebar tree, in visual order.</summary>
+    internal IEnumerable<Border> GetCategoryRows()
+        => CategoryTree.GetVisualDescendants()
+            .OfType<Border>()
+            .Where(candidate => candidate.Classes.Contains("categoryRowLabel"));
+
+    /// <summary>The row <c>Border</c> that renders a category, or null when not realised.</summary>
+    internal Border? FindCategoryRow(Guid categoryId)
+        => GetCategoryRows()
+            .FirstOrDefault(candidate => candidate.DataContext is CategoryTreeRow node &&
+                                         node.Item.CategoryId == categoryId);
+
+    /// <summary>
+    /// Y position of every realised category row, keyed by category. Sampled before a
+    /// drop so the rows that change place can slide from their old spot to the new
+    /// one (a FLIP animation).
+    /// </summary>
+    internal Dictionary<Guid, double> CaptureCategoryRowPositions()
+    {
+        var positions = new Dictionary<Guid, double>();
+        foreach (var row in GetCategoryRows())
+        {
+            if (row.DataContext is CategoryTreeRow { Item.CategoryId: { } id } &&
+                row.TranslatePoint(new Point(0, 0), CategoryTree) is { } top)
+            {
+                positions[id] = top.Y;
+            }
+        }
+
+        return positions;
+    }
+
+    /// <summary>
+    /// Slides the rows that changed place into their new position. Runs after the
+    /// model update, so each row's final layout is already correct; the animation only
+    /// offsets it by the distance it travelled and eases that offset back to zero.
+    /// <para>
+    /// This is the piece that makes a swap read as motion: a reorder recreates the
+    /// moved row's container and its neighbours shift by one row height, which
+    /// without an offset animation is an instantaneous jump.
+    /// </para>
+    /// </summary>
+    internal void AnimateCategoryRowSwap(IReadOnlyDictionary<Guid, double> before)
+        => AnimateCategoryRowSwap(before, deferLayout: true);
+
+    /// <param name="deferLayout">
+    /// True to wait for the next layout pass (drag drop, where the collection change was
+    /// just applied); false when the caller has already forced layout.
+    /// </param>
+    internal void AnimateCategoryRowSwap(IReadOnlyDictionary<Guid, double> before, bool deferLayout)
+    {
+        if (deferLayout)
+        {
+            // The rows only know their new positions after the layout pass that follows the
+            // collection change.
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () =>
+                {
+                    CategoryTree.UpdateLayout();
+                    Animate(before);
+                },
+                Avalonia.Threading.DispatcherPriority.Loaded);
+        }
+        else
+        {
+            Animate(before);
+        }
+
+        void Animate(IReadOnlyDictionary<Guid, double> previous)
+        {
+            if (AppTheme.ReduceMotion)
+            {
+                return;
+            }
+
+            var offsets = new List<(Border Row, double Delta)>();
+            foreach (var row in GetCategoryRows())
+            {
+                if (row.DataContext is not CategoryTreeRow { Item.CategoryId: { } id } ||
+                    !previous.TryGetValue(id, out var oldTop) ||
+                    row.TranslatePoint(new Point(0, 0), CategoryTree) is not { } current)
+                {
+                    continue;
+                }
+
+                var delta = oldTop - current.Y;
+                if (Math.Abs(delta) < 0.5)
+                {
+                    continue;
+                }
+
+                // A row that was only just revealed is already running the appear animation
+                // on its container, so it has no previous position to slide from.
+                if (!previous.ContainsKey(id))
+                {
+                    continue;
+                }
+
+                offsets.Add((row, delta));
+            }
+
+            if (offsets.Count == 0)
+            {
+                return;
+            }
+
+            // Drive the slide frame by frame. A Transitions-based version depends on
+            // the style pass having installed the transition before the offset is
+            // cleared, which is easy to get wrong and silently does nothing; stepping
+            // RenderTransform directly is deterministic and never touches layout.
+            RunSlide(offsets);
+        }
+    }
+
+    /// <summary>Duration of the post-drop slide.</summary>
+    private static readonly TimeSpan SlideDuration = TimeSpan.FromMilliseconds(180);
+
+    /// <summary>
+    /// Slides each row from an offset back to zero. <see cref="Visual.RenderTransform"/>
+    /// is composited, so this never triggers a layout or paint pass of the sidebar.
+    /// </summary>
+    private void RunSlide(List<(Border Row, double Delta)> offsets)
+    {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var timer = new Avalonia.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(15),
+        };
+
+        void Apply(double progress)
+        {
+            // Ease-out cubic: quick departure, soft landing.
+            var eased = 1 - Math.Pow(1 - progress, 3);
+
+            foreach (var (row, delta) in offsets)
+            {
+                if (!row.IsAttachedToVisualTree())
+                {
+                    continue;
+                }
+
+                var remaining = delta * (1 - eased);
+                row.RenderTransform = Math.Abs(remaining) < 0.2
+                    ? null
+                    : TransformOperations.Parse(
+                        $"translate(0px, {remaining.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}px)");
+            }
+        }
+
+        timer.Tick += (_, _) =>
+        {
+            var progress = started.Elapsed.TotalMilliseconds / SlideDuration.TotalMilliseconds;
+            if (progress >= 1)
+            {
+                timer.Stop();
+                foreach (var (row, _) in offsets)
+                {
+                    row.RenderTransform = null;
+                }
+
+                return;
+            }
+
+            Apply(progress);
+        };
+
+        Apply(0);
+        timer.Start();
+    }
+
+    /// <summary>
+    /// Moves the floating "what am I dragging" chip. Position is a plain
+    /// <see cref="Canvas"/> coordinate, so following the pointer never invalidates
+    /// the sidebar's layout — only this one small element re-renders.
+    /// </summary>
+    internal void ShowCategoryDragGhost(string label, Point position)
+    {
+        if (CategoryDragGhostLabel.Text != label)
+        {
+            CategoryDragGhostLabel.Text = label;
+        }
+
+        if (!CategoryDragGhost.IsVisible)
+        {
+            CategoryDragGhost.IsVisible = true;
+        }
+
+        // Sit just below-right of the cursor, clamped inside the window.
+        var x = Math.Min(position.X + 14, Bounds.Width - CategoryDragGhost.Bounds.Width - 8);
+        var y = Math.Min(position.Y + 10, Bounds.Height - CategoryDragGhost.Bounds.Height - 8);
+        Canvas.SetLeft(CategoryDragGhost, Math.Max(0, x));
+        Canvas.SetTop(CategoryDragGhost, Math.Max(0, y));
+    }
+
+    internal void HideCategoryDragGhost() => CategoryDragGhost.IsVisible = false;
+
+
+    private MainViewModel? _categoryRowsViewModel;
+
+    /// <summary>
+    /// Watches the flat row list so an in-flight drag is dropped when rows are rebuilt
+    /// (the markers would otherwise point at controls that left the tree).
     /// </summary>
     protected override void OnDataContextChanged(EventArgs e)
     {
         base.OnDataContextChanged(e);
 
-        if (_categoryNodesViewModel is not null)
+        if (_categoryRowsViewModel is not null)
         {
-            _categoryNodesViewModel.CategoryNodes.CollectionChanged -= OnCategoryNodesChanged;
-            _categoryNodesViewModel = null;
+            _categoryRowsViewModel.CategoryRows.CollectionChanged -= OnCategoryRowsChanged;
+            _categoryRowsViewModel = null;
         }
 
         if (DataContext is MainViewModel viewModel)
         {
-            _categoryNodesViewModel = viewModel;
-            viewModel.CategoryNodes.CollectionChanged += OnCategoryNodesChanged;
-            ApplyCategoryRowTemplates(viewModel);
+            _categoryRowsViewModel = viewModel;
+            viewModel.CategoryRows.CollectionChanged += OnCategoryRowsChanged;
         }
     }
 
-    private void OnCategoryNodesChanged(object? sender, NotifyCollectionChangedEventArgs e)
-        => ApplyCategoryRowTemplates(_categoryNodesViewModel);
-
-    private void ApplyCategoryRowTemplates(MainViewModel? viewModel)
-    {
-        if (viewModel is null || Resources["CategoryRowTemplate"] is not IDataTemplate template)
-        {
-            return;
-        }
-
-        Apply(viewModel.CategoryNodes);
-
-        void Apply(IEnumerable<CategoryNavNode> nodes)
-        {
-            foreach (var node in nodes)
-            {
-                node.HeaderTemplate = template;
-                Apply(node.Entries.OfType<CategoryNavNode>());
-            }
-        }
-    }
+    private void OnCategoryRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        => CancelCategoryDrag();
 
     public void ShowLockOverlay()
     {
@@ -401,16 +723,16 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Per-row "…" menu. The row itself expands or selects the node, so every
-    /// category action lives in this flyout instead of inline buttons.
+    /// A category row press selects it, toggles the branch when the chevron is hit, and
+    /// arms the drag gesture. The press is marked handled so the ListBoxItem does not
+    /// also process it; selection is applied explicitly here.
+    /// <para>
+    /// The same press may start a drag (see <see cref="CategoryDrag"/>): the gesture only
+    /// arms here, and the first move past the threshold turns it into a drag, so a plain
+    /// click behaves exactly like a click.
+    /// </para>
     /// </summary>
-    /// <summary>
-    /// Category rows select from their label area (parents included — AtomUI treats a
-    /// row with children as a submenu header and would only toggle it). Marking the
-    /// press handled keeps the NavMenu's row activation out of the way, while the
-    /// arrow column and the row padding still reach the control and toggle.
-    /// </summary>
-    private void OnCategoryRowLabelPressed(object? sender, PointerPressedEventArgs e)
+    private void OnCategoryRowLabelPress(object? sender, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
@@ -419,30 +741,108 @@ public partial class MainWindow : Window
 
         e.Handled = true;
         SelectCategoryRow(sender);
+
+        if (sender is not Border { DataContext: CategoryTreeRow row } border)
+        {
+            CancelCategoryDrag();
+            return;
+        }
+
+        // Hitting the chevron expands/collapses instead of starting a drag. The row's
+        // content grid is indented by (Depth - 1) steps, and the chevron occupies the
+        // first column of that grid, so its band is [indent, indent + width).
+        var position = e.GetPosition(border);
+        var indent = Math.Max(0, row.Depth - 1) * CategoryIndentConverter.IndentPerLevel;
+        if (row.HasChildren &&
+            position.X >= indent &&
+            position.X <= indent + ChevronHitWidth)
+        {
+            ToggleCategoryBranch(row);
+            CancelCategoryDrag();
+            return;
+        }
+
+        if (row.IsUserCategory)
+        {
+            _drag = CategoryDrag.Arm(this, row, border, e);
+            return;
+        }
+
+        CancelCategoryDrag();
     }
 
-    private void OnCategoryRowLabelKeyDown(object? sender, KeyEventArgs e)
+    /// <summary>Width of the leading chevron column that toggles a branch.</summary>
+    private const double ChevronHitWidth = 18;
+
+    /// <summary>
+    /// Expands or collapses a branch, then slides the rows that moved into their new
+    /// place. Animating only the newly created rows is not enough: the rows below the
+    /// branch shift by the branch height, and if they jump while the new rows slide the
+    /// whole sidebar appears to wobble under the pointer.
+    /// </summary>
+    private void ToggleCategoryBranch(CategoryTreeRow row)
     {
-        if (e.Key is not (Key.Enter or Key.Space))
+        if (DataContext is not MainViewModel viewModel)
         {
             return;
         }
 
-        e.Handled = true;
-        SelectCategoryRow(sender);
+        // Sample where every row sits before the list changes shape.
+        var before = CaptureCategoryRowPositions();
+        viewModel.ToggleCategoryExpansion(row);
+
+        // Force the layout pass now, while we are still inside the click handler, so the
+        // rows below already know their new positions. Doing this inside a posted callback
+        // proved unreliable: by the time it ran the deltas could measure as zero and the
+        // neighbours jumped instead of sliding.
+        CategoryTree.UpdateLayout();
+        AnimateCategoryRowSwap(before, deferLayout: false);
+    }
+
+    /// <summary>
+    /// Keyboard support for the sidebar tree: Left/Right collapse/expand the focused
+    /// branch. Up/Down and Home/End already come from the ListBox.
+    /// </summary>
+    private void OnCategoryRowLabelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not Border { DataContext: CategoryTreeRow row } ||
+            DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.Right when row.HasChildren && !row.IsExpanded:
+                e.Handled = true;
+                ToggleCategoryBranch(row);
+                break;
+            case Key.Left when row.HasChildren && row.IsExpanded:
+                e.Handled = true;
+                ToggleCategoryBranch(row);
+                break;
+            case Key.Enter or Key.Space:
+                e.Handled = true;
+                SelectCategoryRow(sender);
+                break;
+        }
     }
 
     private void SelectCategoryRow(object? sender)
     {
-        if (sender is Control { DataContext: CategoryNavNode node } && DataContext is MainViewModel viewModel)
+        if (sender is Control { DataContext: CategoryTreeRow row } && DataContext is MainViewModel viewModel)
         {
-            viewModel.SelectedCategoryNode = node;
+            viewModel.SelectedCategoryRow = row;
         }
     }
 
+    /// <summary>
+    /// Per-row "…" menu. The row itself expands or selects the node, so every
+    /// category action lives in this flyout instead of inline buttons.
+    /// </summary>
     private void OnCategoryActionsClicked(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: CategoryNavNode node } button ||
+        if (sender is not Button { DataContext: CategoryTreeRow node } button ||
             DataContext is not MainViewModel viewModel ||
             node.Item.CategoryId is not { } id)
         {
@@ -463,7 +863,7 @@ public partial class MainWindow : Window
         move.Click += async (_, _) => await MoveCategoryAsync(id, node.Item);
         flyout.Items.Add(move);
 
-        if (viewModel.CategoryNodes.Count > 1)
+        if (viewModel.CategoryRows.Count > 1)
         {
             var merge = new AtomUIMenuItem { Header = Loc.T("Main_MergeCategory") };
             merge.Click += async (_, _) => await MergeCategoryAsync(id, node.Item);

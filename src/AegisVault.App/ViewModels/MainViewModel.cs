@@ -1,9 +1,11 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using AegisVault.App.Localization;
 using AegisVault.App.Services;
 using AegisVault.Core.Models;
 using AegisVault.Core.Services;
 using AtomUI.Controls.Primitives;
+using AtomUI.Desktop.Controls;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -183,17 +185,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<CategoryItem> TagCategories { get; } = [];
 
-    /// <summary>Nested tree the sidebar's inline NavMenu renders.</summary>
-    public ObservableCollection<CategoryNavNode> CategoryNodes { get; } = [];
-
     /// <summary>
-    /// Paths expanded when the tree is (re)built. Roots start expanded so the
-    /// common flat case looks exactly like the previous sidebar list.
+    /// Rows the sidebar category tree currently shows, flat and in display order.
+    /// Collapsed branches are simply absent, so expanding and collapsing is an
+    /// insert/remove instead of a container rebuild (see <see cref="CategoryTreeRow"/>).
     /// </summary>
-    public ObservableCollection<TreeNodePath> CategoryOpenPaths { get; } = [];
+    public ObservableCollection<CategoryTreeRow> CategoryRows { get; } = [];
 
     /// <summary>Shape of the last built tree; entry edits do not rebuild it.</summary>
     private string? _categoryTreeSignature;
+
+    /// <summary>
+    /// Category ids the user explicitly collapsed. Branches are expanded by default
+    /// (matching the flat list this tree replaced), so tracking the exceptions keeps a
+    /// freshly loaded vault fully open regardless of when the first build happens.
+    /// </summary>
+    private readonly HashSet<Guid> _collapsedCategories = [];
+
 
     public ObservableCollection<CategoryChoice> CategoryChoices { get; } = [];
 
@@ -213,7 +221,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private CategoryItem? selectedTagCategory;
 
     [ObservableProperty]
-    private CategoryNavNode? selectedCategoryNode;
+    private CategoryTreeRow? selectedCategoryRow;
 
     /// <summary>True while the view-model pushes a selection into the sidebar.</summary>
     private bool _syncingCategorySelection;
@@ -238,7 +246,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SelectedCategory = value;
         SelectedUserCategory = null;
         SelectedTagCategory = null;
-        ClearCategoryNodeSelection();
+        ClearCategoryRowSelection();
     }
 
     partial void OnSelectedUserCategoryChanged(CategoryItem? value)
@@ -263,10 +271,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SelectedCategory = value;
         SelectedSystemCategory = null;
         SelectedUserCategory = null;
-        ClearCategoryNodeSelection();
+        ClearCategoryRowSelection();
     }
 
-    partial void OnSelectedCategoryNodeChanged(CategoryNavNode? value)
+    partial void OnSelectedCategoryRowChanged(CategoryTreeRow? value)
     {
         if (_syncingCategorySelection || value is null)
         {
@@ -278,9 +286,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SelectedTagCategory = null;
     }
 
-    private void ClearCategoryNodeSelection()
+    private void ClearCategoryRowSelection()
     {
-        if (SelectedCategoryNode is null)
+        if (SelectedCategoryRow is null)
         {
             return;
         }
@@ -288,7 +296,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _syncingCategorySelection = true;
         try
         {
-            SelectedCategoryNode = null;
+            SelectedCategoryRow = null;
         }
         finally
         {
@@ -1437,52 +1445,207 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var signature = CategoryTreeSignature();
         if (signature == _categoryTreeSignature)
         {
-            RefreshCategoryNodeItems();
+            RefreshCategoryRowItems();
             return;
         }
 
         _categoryTreeSignature = signature;
-        CategoryNodes.Clear();
-        CategoryOpenPaths.Clear();
+        RebuildCategoryRows(resetExpansion: false);
+        RestoreSelectedCategoryRow();
+    }
 
-        // Every branch starts expanded, matching the flat list this tree replaces;
-        // paths are filled before the nodes are added so the NavMenu creates the
-        // containers already open.
-        AddOpenPaths(null, TreeNodePath.Empty);
-        foreach (var category in SortedChildrenOf(null))
+    /// <summary>
+    /// Rebuilds <see cref="CategoryRows"/> from the vault: a flat, in-order list of the
+    /// rows that should be visible. A category's children are included only while it is
+    /// expanded, so collapsing is just leaving rows out.
+    /// </summary>
+    /// <param name="resetExpansion">
+    /// True to forget every explicit collapse; false to keep whatever the user had open.
+    /// </param>
+    private void RebuildCategoryRows(bool resetExpansion)
+    {
+        if (resetExpansion)
         {
-            CategoryNodes.Add(BuildCategoryNode(category, depth: 1));
+            _collapsedCategories.Clear();
         }
+
+        CategoryRows.Clear();
+        AddRows(null, depth: 1);
 
         if (HasUncategorizedView)
         {
             var uncategorized = Categories.First(category =>
                 category.Kind == CategoryKind.Category && category.CategoryId is null);
-            CategoryNodes.Add(new CategoryNavNode(uncategorized));
+            CategoryRows.Add(new CategoryTreeRow(uncategorized, 1, false, false));
         }
 
-        RestoreSelectedCategoryNode();
-
-        CategoryNavNode BuildCategoryNode(Category category, int depth)
+        void AddRows(Guid? parentId, int depth)
         {
-            var children = SortedChildrenOf(category.Id);
-            var node = new CategoryNavNode(RowItemFor(category, depth, children.Count > 0));
-            foreach (var child in children)
+            foreach (var category in SortedChildrenOf(parentId))
             {
-                node.Entries.Add(BuildCategoryNode(child, depth + 1));
-            }
+                var children = SortedChildrenOf(category.Id);
+                var hasChildren = children.Count > 0;
+                var expanded = hasChildren && !_collapsedCategories.Contains(category.Id);
 
-            return node;
+                CategoryRows.Add(new CategoryTreeRow(
+                    RowItemFor(category, depth, hasChildren),
+                    depth,
+                    hasChildren,
+                    expanded));
+
+                if (expanded)
+                {
+                    AddRows(category.Id, depth + 1);
+                }
+            }
         }
     }
 
-    private void AddOpenPaths(Guid? parentId, TreeNodePath parentPath)
+    /// <summary>
+    /// Expands or collapses a category row, inserting or removing only the child rows.
+    /// </summary>
+    public void ToggleCategoryExpansion(CategoryTreeRow row)
     {
-        foreach (var category in SortedChildrenOf(parentId))
+        if (row.CategoryId is not { } id || !row.HasChildren)
         {
-            var path = parentPath.Append(CategoryKeyPrefix + category.Id.ToString("D"));
-            CategoryOpenPaths.Add(path);
-            AddOpenPaths(category.Id, path);
+            return;
+        }
+
+        // Collapsed ids are the exception set: removing an id expands the branch, adding
+        // one collapses it.
+        var expanded = _collapsedCategories.Contains(id);
+        if (expanded)
+        {
+            _collapsedCategories.Remove(id);
+        }
+        else
+        {
+            _collapsedCategories.Add(id);
+        }
+
+        row.IsExpanded = expanded;
+        SyncCategoryRows();
+    }
+
+    /// <summary>
+    /// Brings <see cref="CategoryRows"/> in line with the current expansion state and
+    /// sibling order. Rows are identified by category id and updated in place, so the
+    /// tree can be rebuilt (re-parent included) without any nested-container limitation
+    /// and without recreating rows that did not change.
+    /// </summary>
+    private void SyncCategoryRows()
+    {
+        var desired = new List<CategoryTreeRow>();
+        Collect(null, 1);
+
+        if (HasUncategorizedView)
+        {
+            var uncategorized = Categories.First(category =>
+                category.Kind == CategoryKind.Category && category.CategoryId is null);
+            desired.Add(new CategoryTreeRow(uncategorized, 1, false, false));
+        }
+
+        // Walk the desired order; reuse the row object for the same category id when one
+        // already exists (cheap, and keeps the container alive), otherwise create one.
+        // The uncategorized pseudo row has no id, so it gets its own sentinel key.
+        var existing = new Dictionary<Guid, CategoryTreeRow>();
+        CategoryTreeRow? uncategorizedRow = null;
+        foreach (var row in CategoryRows)
+        {
+            if (row.CategoryId is { } id)
+            {
+                existing.TryAdd(id, row);
+            }
+            else
+            {
+                uncategorizedRow ??= row;
+            }
+        }
+
+        // Resolve the wanted row instance for each slot, reusing existing objects so their
+        // containers survive.
+        var resolved = new List<CategoryTreeRow>(desired.Count);
+        foreach (var row in desired)
+        {
+            CategoryTreeRow target;
+            if (row.CategoryId is { } id && existing.TryGetValue(id, out var reused))
+            {
+                target = reused;
+            }
+            else if (row.CategoryId is null && uncategorizedRow is not null)
+            {
+                target = uncategorizedRow;
+            }
+            else
+            {
+                target = row;
+            }
+
+            // A reused row has to learn about its new payload (count, name, depth and
+            // whether it now has children), otherwise a category that just became a
+            // parent still looks like a leaf and can never be expanded.
+            if (!ReferenceEquals(target, row))
+            {
+                target.Update(row.Item, row.HasChildren);
+                target.SetDepth(row.Depth);
+                target.IsExpanded = row.IsExpanded;
+            }
+
+            resolved.Add(target);
+        }
+
+        // Apply the difference instead of Clear()+Add: clearing the collection detaches
+        // every container, so the rows that stayed visible would blink (their background
+        // is painted by the container). Removing only what left and inserting only what
+        // arrived keeps the rest of the list untouched.
+        for (var index = CategoryRows.Count - 1; index >= 0; index--)
+        {
+            if (!resolved.Contains(CategoryRows[index]))
+            {
+                CategoryRows.RemoveAt(index);
+            }
+        }
+
+        for (var index = 0; index < resolved.Count; index++)
+        {
+            var row = resolved[index];
+            if (index < CategoryRows.Count && ReferenceEquals(CategoryRows[index], row))
+            {
+                continue;
+            }
+
+            var current = CategoryRows.IndexOf(row);
+            if (current >= 0)
+            {
+                CategoryRows.Move(current, index);
+            }
+            else
+            {
+                CategoryRows.Insert(index, row);
+            }
+        }
+
+        _categoryTreeSignature = CategoryTreeSignature();
+
+        void Collect(Guid? parentId, int depth)
+        {
+            foreach (var category in SortedChildrenOf(parentId))
+            {
+                var children = SortedChildrenOf(category.Id);
+                var hasChildren = children.Count > 0;
+                var expanded = hasChildren && !_collapsedCategories.Contains(category.Id);
+
+                desired.Add(new CategoryTreeRow(
+                    RowItemFor(category, depth, hasChildren),
+                    depth,
+                    hasChildren,
+                    expanded));
+
+                if (expanded)
+                {
+                    Collect(category.Id, depth + 1);
+                }
+            }
         }
     }
 
@@ -1516,44 +1679,34 @@ public partial class MainViewModel : ObservableObject, IDisposable
             '|',
             _vault.Categories
                 .OrderBy(category => category.Id)
-                .Select(category => $"{category.Id:D}:{category.ParentId:D}:{category.Name}"))
+                .Select(category => $"{category.Id:D}:{category.ParentId:D}:{category.SortOrder}:{category.Name}"))
            + $"|uncat:{HasUncategorizedView}";
 
-    private void RefreshCategoryNodeItems()
+    private void RefreshCategoryRowItems()
     {
-        foreach (var node in EnumerateNodes(CategoryNodes))
+        foreach (var row in CategoryRows)
         {
-            if (node.Item.CategoryId is { } id &&
+            if (row.CategoryId is { } id &&
                 _vault.Categories.FirstOrDefault(category => category.Id == id) is { } category)
             {
-                node.Item = RowItemFor(category, node.Item.Depth, node.Item.HasChildren);
+                row.Update(RowItemFor(category, row.Depth, row.HasChildren), row.HasChildren);
             }
-            else if (node.Item.CategoryId is null &&
+            else if (row.CategoryId is null &&
                      Categories.FirstOrDefault(candidate =>
                          candidate.Kind == CategoryKind.Category && candidate.CategoryId is null) is { } uncategorized)
             {
-                node.Item = uncategorized;
+                row.Update(uncategorized, false);
             }
         }
     }
 
-    private static IEnumerable<CategoryNavNode> EnumerateNodes(IEnumerable<CategoryNavNode> nodes)
-    {
-        foreach (var node in nodes)
-        {
-            yield return node;
-            foreach (var nested in EnumerateNodes(node.Entries.OfType<CategoryNavNode>()))
-            {
-                yield return nested;
-            }
-        }
-    }
-
-    private void RestoreSelectedCategoryNode()
+    private void RestoreSelectedCategoryRow()
     {
         var selectedKey = SelectedCategory?.Key;
-        var restored = selectedKey is null ? null : FindNode(CategoryNodes, selectedKey);
-        if (ReferenceEquals(restored, SelectedCategoryNode))
+        var restored = selectedKey is null
+            ? null
+            : CategoryRows.FirstOrDefault(row => row.Key == selectedKey);
+        if (ReferenceEquals(restored, SelectedCategoryRow))
         {
             return;
         }
@@ -1561,7 +1714,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _syncingCategorySelection = true;
         try
         {
-            SelectedCategoryNode = restored;
+            SelectedCategoryRow = restored;
         }
         finally
         {
@@ -1572,26 +1725,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private List<Category> SortedChildrenOf(Guid? parentId)
         => _vault.Categories
             .Where(category => category.ParentId == parentId)
-            .OrderBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(category => category.SortOrder > 0 ? category.SortOrder : int.MaxValue)
+            .ThenBy(category => category.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-    private static CategoryNavNode? FindNode(IEnumerable<CategoryNavNode> nodes, string key)
-    {
-        foreach (var node in nodes)
-        {
-            if (node.Item.Key == key)
-            {
-                return node;
-            }
-
-            if (FindNode(node.Entries.OfType<CategoryNavNode>(), key) is { } nested)
-            {
-                return nested;
-            }
-        }
-
-        return null;
-    }
 
     private void RebuildCategorySections(CategoryItem? selected)
     {
@@ -1716,7 +1852,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (_vault.MoveCategory(id, parentId))
             {
-                RefreshCategoryViews();
+                // Flat rows: a re-parent is just a re-sync, so the moved branch appears
+                // under its new parent immediately (no container-rebuild limitation).
+                // The destination is expanded so the moved row is visible right away.
+                if (parentId is { } target)
+                {
+                    _collapsedCategories.Remove(target);
+                }
+
+                SyncCategoryRows();
+                RestoreSelectedCategoryRow();
                 StatusMessage = Loc.T("Main_StatusCategoryMoved");
                 return true;
             }
@@ -1777,16 +1922,42 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>Selects a category in the sidebar tree by id.</summary>
     public void SelectCategoryNode(Guid categoryId)
     {
+        // A collapsed branch hides its children, so make sure the target is reachable
+        // before selecting it.
+        ExpandAncestorsOf(categoryId);
+
         var key = CategoryKeyPrefix + categoryId.ToString("D");
-        var node = FindNode(CategoryNodes, key);
-        if (node is not null)
+        var row = CategoryRows.FirstOrDefault(candidate => candidate.Key == key);
+        if (row is not null)
         {
-            SelectedCategoryNode = node;
+            SelectedCategoryRow = row;
         }
     }
 
-    /// <summary>First level of the sidebar tree, for the parent pickers.</summary>
-    public IEnumerable<CategoryNavNode> CategoryTree => CategoryNodes;
+    /// <summary>Opens every collapsed ancestor so <paramref name="categoryId"/> is visible.</summary>
+    private void ExpandAncestorsOf(Guid categoryId)
+    {
+        var changed = false;
+        var current = _vault.Categories.FirstOrDefault(category => category.Id == categoryId);
+
+        while (current?.ParentId is { } parentId)
+        {
+            if (_collapsedCategories.Remove(parentId))
+            {
+                changed = true;
+            }
+
+            current = _vault.Categories.FirstOrDefault(category => category.Id == parentId);
+        }
+
+        if (changed)
+        {
+            SyncCategoryRows();
+        }
+    }
+
+    /// <summary>Rows of the sidebar tree, in display order (for the parent pickers).</summary>
+    public IEnumerable<CategoryTreeRow> CategoryTree => CategoryRows;
 
     /// <summary>Applies a new palette/hex colour to a category.</summary>
     public void SetCategoryColor(Guid id, string? color)
@@ -1881,6 +2052,66 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Ids of a category and everything nested under it.</summary>
     public IReadOnlySet<Guid> GetCategorySubtreeIds(Guid id) => _vault.GetCategorySubtree(id);
+
+    /// <summary>
+    /// Drops <paramref name="id"/> before one of its own siblings (sidebar
+    /// reorder). Returns false when the pair is not a valid drop.
+    /// </summary>
+    public bool TryReorderCategory(Guid id, Guid? beforeId)
+    {
+        if (!_vault.ReorderCategory(id, beforeId))
+        {
+            return false;
+        }
+
+        // The rows are flat, so a sibling reorder is just a re-sync of their order.
+        SyncCategoryRows();
+        StatusMessage = Loc.T("Main_StatusCategoryReordered");
+        return true;
+    }
+
+    /// <summary>
+    /// Drop handler for the sidebar: onto a row (re-parent into it) or between
+    /// two rows (reorder among siblings). Returns a localized failure reason, or
+    /// null when the drop was applied (or was a harmless no-op).
+    /// </summary>
+    public string? DropCategory(Guid id, Guid? newParentId, Guid? beforeId)
+    {
+        var current = _vault.Categories.FirstOrDefault(candidate => candidate.Id == id);
+        if (current is null)
+        {
+            return Loc.T("Main_CategoryMissing");
+        }
+
+        if (newParentId == current.ParentId)
+        {
+            // Same parent: this is a pure reorder. Dropping a row on itself is not a
+            // position; treat it as a no-op rather than a failure.
+            if (beforeId == id)
+            {
+                return null;
+            }
+
+            if (!_vault.ReorderCategory(id, beforeId))
+            {
+                return Loc.T("Main_CategoryOperationFailed");
+            }
+
+            // The rows are flat, so a sibling reorder is just a re-sync of their order.
+            SyncCategoryRows();
+            StatusMessage = Loc.T("Main_StatusCategoryReordered");
+            return null;
+        }
+
+        return TryMoveCategory(id, newParentId, out var error) ? null : error;
+    }
+
+    /// <summary>
+    /// Whether a drag may end on <paramref name="targetId"/>: not itself, and not
+    /// inside its own subtree (which would detach the branch from the tree).
+    /// </summary>
+    public bool CanDropCategoryOn(Guid id, Guid targetId)
+        => id != targetId && !_vault.GetCategorySubtree(id).Contains(targetId);
 
     /// <summary>Categories that may become the parent of <paramref name="movingId"/>.</summary>
     public IReadOnlyList<CategoryChoice> BuildParentChoices(Guid? movingId)    {

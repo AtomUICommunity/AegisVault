@@ -114,6 +114,7 @@ internal static class EnStrings
         ["Main_CategoryMergeAction"] = "Merge",
         ["Main_CategoryMergeMessage"] = "Merge the entries and child categories of “{0}” into:",
         ["Main_StatusCategoryMoved"] = "Category moved.",
+        ["Main_StatusCategoryReordered"] = "Category order updated.",
         ["Main_StatusCategoryMerged"] = "Categories merged.",
         ["Main_StatusCategoryBranchDeleted"] = "Category and its children deleted.",
         ["Main_Cancel"] = "Cancel",

@@ -4,6 +4,7 @@
         xmlns:models="using:AegisVault.Core.Models"
         xmlns:loc="using:AegisVault.App.Localization"
         xmlns:conv="using:AegisVault.App.Converters"
+        xmlns:anim="using:Avalonia.Animation"
         xmlns:controls="using:AegisVault.App.Controls"
         xmlns:atom="https://atomui.net"
         xmlns:antd="https://atomui.net/icons/antdesign"
@@ -24,57 +25,91 @@
         <conv:CategoryIconConverter x:Key="CategoryIconConverter" />
         <conv:CategoryDotConverter x:Key="CategoryDotConverter" />
         <conv:ThemeIconConverter x:Key="ThemeIconConverter" />
+        <conv:CategoryIndentConverter x:Key="CategoryIndentConverter" />
+        <conv:ExpandArrowTransformConverter x:Key="ExpandArrowTransformConverter" />
 
-        <!-- Category tree row: colour dot, name, per-row action menu and branch count.
-             The view assigns it to every CategoryNavNode (AtomUI falls back to a
-             TreeDataTemplate otherwise, which would render the node itself). -->
-        <DataTemplate x:Key="CategoryRowTemplate" DataType="vm:CategoryNavNode" x:DataType="vm:CategoryNavNode">
-            <!-- The label area selects the category (parents included), while the row's
-                 arrow column stays with the NavMenu and keeps toggling. The Border marks
-                 the pointer press as handled so AtomUI's row activation never runs; the
-                 "…" button inside shields itself the same way. -->
+        <!-- Category tree row: expander, colour dot, name, per-row action menu and branch
+             count. The tree renders CategoryRows as a flat ListBox, so the indent comes
+             from CategoryTreeRow.Depth and expanding only inserts/removes rows. -->
+        <DataTemplate x:Key="CategoryRowTemplate" DataType="vm:CategoryTreeRow" x:DataType="vm:CategoryTreeRow">
+            <!-- Background/BorderBrush are supplied by the `categoryRowLabel` style, not set
+                 here: a local value on the element wins over a style setter, which silently
+                 broke the drop-target highlight. -->
             <Border Classes="categoryRowLabel"
-                    Background="Transparent"
-                    BorderBrush="Transparent"
                     BorderThickness="1"
                     CornerRadius="6"
-                    Focusable="True"
                     Cursor="Hand"
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="{Binding Item.DisplayName}"
-                    PointerPressed="OnCategoryRowLabelPressed"
-                    KeyDown="OnCategoryRowLabelKeyDown">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                    <Ellipse Grid.Column="0"
-                             Width="8" Height="8"
-                             Margin="4,0,12,0"
-                             VerticalAlignment="Center"
-                             Fill="{Binding Item, Converter={StaticResource CategoryDotConverter}}" />
-                    <TextBlock Grid.Column="1"
-                               AutomationProperties.AutomationId="CategoryNameText"
-                               Text="{Binding Item.DisplayName}"
-                               FontSize="13"
-                               TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2"
-                                Classes="categoryActions"
-                                Orientation="Horizontal"
-                                Spacing="0"
-                                VerticalAlignment="Center">
-                        <atom:Button ButtonType="Text"
-                                     AutomationProperties.AutomationId="CategoryActionsButton"
-                                     Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
-                                     ToolTip.Tip="{loc:Str Main_CategoryActionsTooltip}"
-                                     Click="OnCategoryActionsClicked" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="3"
-                               AutomationProperties.AutomationId="CategoryCountText"
-                               Text="{Binding Item.Count}"
-                               FontSize="11"
-                               Opacity="0.5"
-                               Margin="6,0,0,0"
-                               VerticalAlignment="Center" />
-                </Grid>
+                    PointerPressed="OnCategoryRowLabelPress">
+                <!-- The drop marker is a sibling of the content (not part of the grid), so
+                     it can sit on the row's top edge and stretch the full sidebar width.
+                     Code-behind shows it for exactly the row the pointer hovers. -->
+                <Panel>
+                    <!-- Inset accent bar for the "drop into this category" state. It is a
+                         sibling of the content and contributes no width, so showing it never
+                         reflows the row (a thicker border would). -->
+                    <Border x:Name="CategoryDropIntoBar"
+                            Width="3"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Stretch"
+                            CornerRadius="2"
+                            Margin="0,3,0,3"
+                            Opacity="0"
+                            IsHitTestVisible="False"
+                            Background="{DynamicResource AegisDropIntoBorderBrush}" />
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+                          Margin="{Binding Depth, Converter={StaticResource CategoryIndentConverter}}">
+                        <!-- Expander column keeps its width for leaves too, so names stay
+                             aligned between parent and leaf rows. -->
+                        <Panel Grid.Column="0" Width="16">
+                            <antd:RightOutlined Classes="categoryChevron"
+                                                Width="8" Height="8"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Foreground="{atom:SharedTokenResource ColorTextTertiary}"
+                                                IsVisible="{Binding HasChildren}"
+                                                RenderTransform="{Binding IsExpanded, Converter={StaticResource ExpandArrowTransformConverter}}" />
+                        </Panel>
+                        <Ellipse Grid.Column="1"
+                                 Width="8" Height="8"
+                                 Margin="2,0,10,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{Binding Item, Converter={StaticResource CategoryDotConverter}}" />
+                        <TextBlock Grid.Column="2"
+                                   AutomationProperties.AutomationId="CategoryNameText"
+                                   Text="{Binding Item.DisplayName}"
+                                   FontSize="13"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="3"
+                                    Classes="categoryActions"
+                                    Orientation="Horizontal"
+                                    Spacing="0"
+                                    VerticalAlignment="Center">
+                            <atom:Button ButtonType="Text"
+                                         AutomationProperties.AutomationId="CategoryActionsButton"
+                                         Icon="{antd:AntDesignIconProvider EllipsisOutlined}"
+                                         ToolTip.Tip="{loc:Str Main_CategoryActionsTooltip}"
+                                         Click="OnCategoryActionsClicked" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="4"
+                                   AutomationProperties.AutomationId="CategoryCountText"
+                                   Text="{Binding Item.Count}"
+                                   FontSize="11"
+                                   Opacity="0.5"
+                                   Margin="6,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                    <Border x:Name="CategoryDropBefore"
+                            Height="2"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Stretch"
+                            CornerRadius="1"
+                            Opacity="0"
+                            IsHitTestVisible="False"
+                            Background="{atom:SharedTokenResource ColorPrimary}" />
+                </Panel>
             </Border>
         </DataTemplate>
     </Window.Resources>
@@ -103,8 +138,15 @@
         <Style Selector="Button.chip.active:pointerover">
             <Setter Property="Background" Value="{DynamicResource AegisChipSelectedBrush}" />
         </Style>
-        <!-- Neutral selection/hover (Fluent defaults are blue) -->
+        <!-- Neutral selection/hover for every sidebar list (Fluent defaults are blue).
+             The combined `:selected:pointerover` state needs to win over plain
+             `:pointerover`, so it is declared with an extra class qualifier below
+             (`ListBoxItem:selected:pointerover` beats `ListBoxItem:pointerover` on
+             specificity, but only if the template selector resolves the same part). -->
         <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
         </Style>
         <Style Selector="ListBox.entries ListBoxItem:selected /template/ ContentPresenter">
@@ -113,8 +155,22 @@
         <Style Selector="ListBox.nav ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
         </Style>
+        <Style Selector="ListBox.categories ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
+        </Style>
         <Style Selector="ListBox.entries ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
+        </Style>
+        <!-- Selected AND hovered. Declared last so it overrides the hover rule above:
+             without it, moving the pointer onto the current row made it look unselected. -->
+        <Style Selector="ListBox.nav ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
+        </Style>
+        <Style Selector="ListBox.categories ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
+        </Style>
+        <Style Selector="ListBox.entries ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
         </Style>
         <!-- Sidebar rows -->
         <Style Selector="ListBox.nav ListBoxItem">
@@ -157,10 +213,30 @@
             <Setter Property="Opacity" Value="0.6" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <!-- Category row baseline. These live here (not as local values in the template)
+             so state classes like dropTarget can override them. -->
+        <Style Selector="Border.categoryRowLabel">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
         <!-- Category row label: keyboard focus must stay visible without shifting layout
              (the transparent 1px border is always reserved). -->
         <Style Selector="Border.categoryRowLabel:focus">
             <Setter Property="BorderBrush" Value="{atom:SharedTokenResource ColorPrimary}" />
+        </Style>
+        <!-- Drop target: the row that becomes the new parent. A filled tint plus an inset
+             accent bar on the left, so "drop INTO" is unmistakably different from the thin
+             insertion bar used for sibling reordering. The bar is drawn as an inset box
+             shadow rather than a thicker border, so it cannot shift the row content. -->
+        <Style Selector="Border.categoryRowLabel.dropTarget">
+            <Setter Property="Background" Value="{DynamicResource AegisDropIntoBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AegisDropIntoBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <!-- Row left behind by a running drag gesture. -->
+        <Style Selector="Border.categoryRowLabel.dragSource">
+            <Setter Property="Opacity" Value="0.5" />
         </Style>
     </Window.Styles>
 
@@ -216,20 +292,31 @@
                                              ToolTip.Tip="{loc:Str Main_NewCategoryTitle}"
                                              Click="OnNewCategoryClicked" />
                             </Grid>
-                            <!-- Categories render as a nested, collapsible tree; the row template is the
-                                 implicit CategoryNavNode template above and the app owns the inline
-                                 NavMenu header template in Theme/CategoryNavMenu.axaml. The NavMenu
-                                 stretches (its Inline theme defaults to left-aligned) and drops the
-                                 menu content padding so row backgrounds span the sidebar width. -->
-                            <atom:NavMenu AutomationProperties.AutomationId="CategoryTree"
-                                          Mode="Inline"
-                                          HorizontalAlignment="Stretch"
-                                          Padding="0"
-                                          Background="Transparent"
-                                          IsItemBackgroundEnabled="False"
-                                          DefaultOpenPaths="{Binding CategoryOpenPaths}"
-                                          ItemsSource="{Binding CategoryNodes}"
-                                          SelectedItem="{Binding SelectedCategoryNode}" />
+                            <!-- Categories render as a flat, collapsible list: the view model
+                                 keeps CategoryRows in display order and only inserts/removes
+                                 rows when a branch opens or closes. A flat list avoids the
+                                 nested-container limitation that used to force a full tree
+                                 rebuild whenever a category changed parent, and it gives
+                                 selection, keyboard navigation and automation support for
+                                 free from ListBox. -->
+                            <ListBox x:Name="CategoryTree"
+                                     Classes="categories"
+                                     AutomationProperties.AutomationId="CategoryTree"
+                                     HorizontalAlignment="Stretch"
+                                     Background="Transparent"
+                                     Padding="0"
+                                     ItemTemplate="{StaticResource CategoryRowTemplate}"
+                                     ItemsSource="{Binding CategoryRows}"
+                                     SelectedItem="{Binding SelectedCategoryRow}">
+                                <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Margin" Value="0,1" />
+                                        <Setter Property="CornerRadius" Value="6" />
+                                        <Setter Property="MinHeight" Value="30" />
+                                    </Style>
+                                </ListBox.Styles>
+                            </ListBox>
 
 
                             <TextBlock Classes="section" Text="{loc:Str Main_Tags}" />
@@ -1359,5 +1446,31 @@
                 </Border>
             </Panel>
         </Border>
+
+        <!-- ==================== Drag ghost ====================
+             A small chip that follows the pointer while a category row is dragged,
+             so the gesture reads as "carrying this row". Positioned through Canvas
+             coordinates (no layout pass) and never hit-testable. -->
+        <Canvas IsHitTestVisible="False">
+            <Border x:Name="CategoryDragGhost"
+                    IsVisible="False"
+                    Opacity="0"
+                    Padding="8,4"
+                    CornerRadius="6"
+                    Background="{atom:SharedTokenResource ColorBgElevated}"
+                    BorderBrush="{atom:SharedTokenResource ColorPrimary}"
+                    BorderThickness="1">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
+                    </Transitions>
+                </Border.Transitions>
+                <TextBlock x:Name="CategoryDragGhostLabel"
+                           FontSize="12"
+                           MaxWidth="200"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{atom:SharedTokenResource ColorText}" />
+            </Border>
+        </Canvas>
     </Panel>
 </Window>

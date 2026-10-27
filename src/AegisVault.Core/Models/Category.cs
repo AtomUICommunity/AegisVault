@@ -24,5 +24,13 @@ public sealed record Category
     /// </summary>
     public Guid? ParentId { get; init; }
 
+    /// <summary>
+    /// Position among its siblings (ascending). The user owns this order by
+    /// dragging rows in the sidebar; <c>0</c> means "never ordered" and is
+    /// resolved to the alphabetical position at load time (categories payload
+    /// v3 and older carried no order at all).
+    /// </summary>
+    public int SortOrder { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

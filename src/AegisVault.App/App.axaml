@@ -7,27 +7,41 @@
 
     <Application.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceInclude Source="avares://AegisVault.App/Theme/CategoryNavMenu.axaml" />
-            </ResourceDictionary.MergedDictionaries>
             <ResourceDictionary.ThemeDictionaries>
+                <!--
+                    Sidebar surface ramp. Every state shares the brand green hue (~162 light,
+                    ~158 dark) and only varies saturation/lightness, so hovering and selecting
+                    read as "the same ink, more of it" instead of a neutral grey fighting the
+                    accent colour. Steps are at least 0.045 apart in relative luminance, which
+                    keeps them distinguishable, and the darkest step still holds >= 11:1
+                    contrast against body text.
+                -->
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="AegisSidebarBrush" Color="#FBFBFC" />
-                    <SolidColorBrush x:Key="AegisHairlineBrush" Color="#ECECEE" />
-                    <SolidColorBrush x:Key="AegisHoverBrush" Color="#F4F4F5" />
-                    <SolidColorBrush x:Key="AegisSelectedBrush" Color="#EFEFF1" />
-                    <SolidColorBrush x:Key="AegisChipBrush" Color="#F4F4F5" />
-                    <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#E7E7E9" />
+                    <SolidColorBrush x:Key="AegisSidebarBrush" Color="#FCFCFC" />
+                    <SolidColorBrush x:Key="AegisHairlineBrush" Color="#EAEFEC" />
+                    <SolidColorBrush x:Key="AegisHoverBrush" Color="#F2F5F4" />
+                    <SolidColorBrush x:Key="AegisSelectedBrush" Color="#E7ECEA" />
+                    <!-- Pointer over an already-selected row: darker still, so it responds. -->
+                    <SolidColorBrush x:Key="AegisSelectedHoverBrush" Color="#DCE5E2" />
+                    <SolidColorBrush x:Key="AegisChipBrush" Color="#F2F5F4" />
+                    <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#E7ECEA" />
                     <SolidColorBrush x:Key="AegisCardBorderBrush" Color="Transparent" />
+                    <!-- "Drop into this category": the most saturated step of the ramp, so it
+                         outranks selection instead of blending into it. -->
+                    <SolidColorBrush x:Key="AegisDropIntoBrush" Color="#CAE2DB" />
+                    <SolidColorBrush x:Key="AegisDropIntoBorderBrush" Color="#0F6B4F" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="AegisSidebarBrush" Color="#0E0E10" />
-                    <SolidColorBrush x:Key="AegisHairlineBrush" Color="#232326" />
-                    <SolidColorBrush x:Key="AegisHoverBrush" Color="#1B1B1F" />
-                    <SolidColorBrush x:Key="AegisSelectedBrush" Color="#232329" />
-                    <SolidColorBrush x:Key="AegisChipBrush" Color="#1B1B1F" />
-                    <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#26262B" />
-                    <SolidColorBrush x:Key="AegisCardBorderBrush" Color="#232326" />
+                    <SolidColorBrush x:Key="AegisSidebarBrush" Color="#0C0E0D" />
+                    <SolidColorBrush x:Key="AegisHairlineBrush" Color="#212724" />
+                    <SolidColorBrush x:Key="AegisHoverBrush" Color="#161B19" />
+                    <SolidColorBrush x:Key="AegisSelectedBrush" Color="#1E2724" />
+                    <SolidColorBrush x:Key="AegisSelectedHoverBrush" Color="#23312C" />
+                    <SolidColorBrush x:Key="AegisChipBrush" Color="#161B19" />
+                    <SolidColorBrush x:Key="AegisChipSelectedBrush" Color="#1E2724" />
+                    <SolidColorBrush x:Key="AegisCardBorderBrush" Color="#212724" />
+                    <SolidColorBrush x:Key="AegisDropIntoBrush" Color="#254138" />
+                    <SolidColorBrush x:Key="AegisDropIntoBorderBrush" Color="#1F8A63" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
@@ -50,13 +64,13 @@
         </Style>
 
         <!-- Category rows: the per-row action menu only shows on hover/selection. -->
-        <Style Selector="atom|InlineNavMenuItemHeader StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem StackPanel.categoryActions">
             <Setter Property="Opacity" Value="0" />
         </Style>
-        <Style Selector="atom|InlineNavMenuItemHeader:pointerover StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem:pointerover StackPanel.categoryActions">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="atom|InlineNavMenuItemHeader[IsSelected=True] StackPanel.categoryActions">
+        <Style Selector="ListBox.categories ListBoxItem:selected StackPanel.categoryActions">
             <Setter Property="Opacity" Value="1" />
         </Style>
     </Application.Styles>
