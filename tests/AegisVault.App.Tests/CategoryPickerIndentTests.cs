@@ -2,6 +2,7 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.VisualTree;
 using AegisVault.App.ViewModels;
@@ -114,6 +115,45 @@ public sealed class CategoryPickerIndentTests
             Assert.Equal(root + 16, one, 1);
             Assert.Equal(root + 32, two, 1);
             Assert.Equal(root + 48, three, 1);
+
+            window.Close();
+        }
+        finally { TryDelete(dir); }
+    });
+
+    [Fact]
+    public Task TheSelectorUsesBrandColorsNotTheSystemAccent() => Headless.Run(() =>
+    {
+        var (_, vm, vault, dir) = Show();
+        using var _ = vault;
+        try
+        {
+            var choices = vm.BuildParentChoices(movingId: null);
+            var window = new CategoryParentWindow("Move", "Pick:", choices, null);
+            window.Show();
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+            var list = window.GetVisualDescendants().OfType<ListBox>().First();
+            var items = list.GetRealizedContainers().OfType<ListBoxItem>().ToList();
+            Assert.NotEmpty(items);
+
+            items[0].IsSelected = true;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var presenter = items[0].GetVisualDescendants().OfType<ContentPresenter>().First();
+            var background = presenter.Background;
+            _out.WriteLine($"selected background={background}");
+            Assert.NotNull(background);
+
+            var color = Assert.IsType<Avalonia.Media.SolidColorBrush>(background).Color;
+            // The brand ramp is a desaturated green; Fluent's accent is a saturated blue.
+            // Compare hue rather than an exact hex so palette tweaks stay allowed.
+            var max = Math.Max(color.R, Math.Max(color.G, color.B));
+            var min = Math.Min(color.R, Math.Min(color.G, color.B));
+            _out.WriteLine($"rgb=#{color.R:X2}{color.G:X2}{color.B:X2} spread={max - min}");
+            Assert.True(color.G >= color.R && color.G >= color.B - 4,
+                $"expected a green-tinted selection, got #{color.R:X2}{color.G:X2}{color.B:X2}");
 
             window.Close();
         }

@@ -26,6 +26,18 @@
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="CornerRadius" Value="4" />
         </Style>
+        <!-- The picker's own class name gets no state styling from the theme, so without
+             these rules a selected row fell back to Fluent's system accent (blue) while the
+             rest of the app is brand green. Same failure as P-71. -->
+        <Style Selector="ListBox.picker ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedBrush}" />
+        </Style>
+        <Style Selector="ListBox.picker ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisHoverBrush}" />
+        </Style>
+        <Style Selector="ListBox.picker ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AegisSelectedHoverBrush}" />
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="40,*,Auto">

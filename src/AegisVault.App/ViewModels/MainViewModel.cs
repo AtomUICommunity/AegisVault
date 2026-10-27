@@ -57,7 +57,15 @@ public sealed record CategoryItem(
 /// whitespace, so every row rendered at the same offset and the hierarchy was invisible.
 /// </para>
 /// </summary>
-public sealed record CategoryChoice(Guid? Id, string Name, int Depth = 0);
+public sealed record CategoryChoice(Guid? Id, string Name, int Depth = 0)
+{
+    /// <summary>
+    /// The record's generated dump (<c>CategoryChoice { Id = ..., Name = ..., Depth = ... }</c>)
+    /// becomes the automation name of every picker row, so screen readers would read out a
+    /// raw record with a GUID instead of the label. Return the name the user sees.
+    /// </summary>
+    public override string ToString() => Name;
+}
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
