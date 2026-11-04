@@ -117,10 +117,63 @@ public static class VaultCsvExporter
         builder.Append("\r\n");
     }
 
-    /// <summary>RFC-4180 field encoding: quote when the value holds a delimiter, quote or newline.</summary>
+    /// <summary>
+    /// True when a spreadsheet would interpret the cell as a formula. Leading spaces
+    /// are skipped first, because Excel trims them before parsing the cell.
+    /// </summary>
+    private static bool NeedsFormulaEscape(string text)
+    {
+        foreach (var character in text)
+        {
+            switch (character)
+            {
+                case '=' or '+' or '-' or '@' or '\t' or '\r':
+                    return true;
+                case ' ':
+                    // Keep looking: "  =SUM(...)" is still a formula once trimmed.
+                    continue;
+                default:
+                    return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Undoes the apostrophe added by <see cref="AppendValue"/>. Applied to imported
+    /// cells so an export/import round trip returns the original value.
+    /// </summary>
+    internal static string StripFormulaEscape(string value)
+    {
+        if (value.Length > 1 && value[0] == '\'' && NeedsFormulaEscape(value[1..]))
+        {
+            return value[1..];
+        }
+
+        return value;
+    }
+
+    /// <summary>
+    /// RFC-4180 field encoding, plus CSV formula-injection protection (CWE-1236).
+    /// <para>
+    /// A spreadsheet treats a cell starting with <c>= + - @</c> (or a tab / carriage
+    /// return) as a formula. Without escaping, an entry imported from an untrusted
+    /// CSV and later exported would execute on open in Excel/WPS - a payload in a
+    /// title such as <c>=WEBSERVICE(...)</c> could send the neighbouring password
+    /// column somewhere. Prefixing with an apostrophe is what Bitwarden and 1Password
+    /// do; the importer strips it again so a round trip is lossless.
+    /// </para>
+    /// </summary>
     private static void AppendValue(StringBuilder builder, string value)
     {
         var text = value ?? string.Empty;
+
+        if (NeedsFormulaEscape(text))
+        {
+            text = "'" + text;
+        }
+
         var needsQuotes = text.Contains(',') || text.Contains('"') || text.Contains('\n') || text.Contains('\r');
         if (!needsQuotes)
         {

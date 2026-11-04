@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using AegisVault.Core.Models;
+using AegisVault.Core.Services;
 using AegisVault.Core.Storage;
 using Xunit;
 
@@ -150,6 +151,24 @@ public sealed class ModelMigrationsTests
     {
         var entry = new PasswordEntry { Title = "x" };
         Assert.Throws<InvalidDataException>(() => ModelMigrations.UpgradeEntry(entry, 0));
+    }
+
+    /// <summary>
+    /// The upper bound mirrors the one <c>UpgradeCategories</c> already had. A payload
+    /// written by a newer release must be reported as unsupported rather than
+    /// deserialized with fields this build does not know about - silently dropping
+    /// whatever the newer version added would be data loss disguised as success.
+    /// </summary>
+    [Fact]
+    public void UpgradeRejectsAPayloadFromANewerRelease()
+    {
+        var entry = new PasswordEntry { Title = "x" };
+        var futureVersion = EntryRepository.EntryFormatVersion + 1;
+
+        var exception = Assert.Throws<UnsupportedVaultVersionException>(
+            () => ModelMigrations.UpgradeEntry(entry, futureVersion));
+
+        Assert.Contains(futureVersion.ToString(), exception.Message);
     }
 
     [Fact]

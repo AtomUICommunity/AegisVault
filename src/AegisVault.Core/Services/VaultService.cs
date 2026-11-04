@@ -185,6 +185,16 @@ public sealed class VaultService : IDisposable
         {
             return VaultUnlockStatus.WrongPassword;
         }
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException)
+        {
+            // A header whose parameters are out of range (iterations or memory cost
+            // outside the Argon2id bounds, a salt of the wrong length, a malformed
+            // KDF document) means the file was tampered with or written by something
+            // broken. Those surface as ArgumentException from the derivation layer;
+            // without this they escaped Unlock as an unexpected exception and the UI
+            // showed a crash-style error instead of "this vault is damaged".
+            return VaultUnlockStatus.Corrupted;
+        }
 
         return EstablishSession(dek);
     }

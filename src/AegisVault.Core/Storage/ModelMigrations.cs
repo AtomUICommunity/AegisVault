@@ -35,6 +35,17 @@ internal static class ModelMigrations
             throw new InvalidDataException($"Entry format version {fromVersion} is not supported.");
         }
 
+        // The upper bound matters as much as the lower one: the caller (LoadEntries)
+        // rejects future payload versions, but this is a public entry point. A new
+        // caller that reads a payload directly - a backup reader, an import path -
+        // would otherwise deserialize a newer entry with missing fields and silently
+        // lose data instead of reporting that the file is from a newer release.
+        if (fromVersion > EntryRepository.EntryFormatVersion)
+        {
+            throw new UnsupportedVaultVersionException(
+                $"Entry format version {fromVersion} is newer than this application supports.");
+        }
+
         // v1 -> v2: collection members (Tags/Urls/CustomFields) may be missing
         // from the payload; v2 guarantees non-null collections.
         // v2 -> v3: added scalar credential fields (Phone/AppId/Secret/ApiKey);

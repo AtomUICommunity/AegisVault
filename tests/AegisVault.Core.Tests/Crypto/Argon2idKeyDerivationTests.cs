@@ -114,4 +114,39 @@ public sealed class Argon2idKeyDerivationTests
         Assert.Throws<ArgumentException>(() =>
             derivation.DeriveKey(Password, RandomNumberGenerator.GetBytes(8), FastParameters));
     }
+
+    /// <summary>
+    /// libsodium requires exactly 16 bytes of salt. Accepting more let a vault be
+    /// created with SaltSize=32 and then fail forever inside crypto_pwhash with an
+    /// opaque exception, so the bound has to be an equality, not a minimum.
+    /// </summary>
+    [Fact]
+    public void RejectsALongerSaltInsteadOfDeferringToLibsodium()
+    {
+        var derivation = new Argon2idKeyDerivation();
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            derivation.DeriveKey(Password, RandomNumberGenerator.GetBytes(32), FastParameters));
+
+        Assert.Contains("16", exception.Message);
+    }
+
+    /// <summary>
+    /// The derived key is used as the AES-256 KEK with no further stretching, so any
+    /// length other than 32 could be created but never used.
+    /// </summary>
+    [Theory]
+    [InlineData(16)]
+    [InlineData(24)]
+    [InlineData(64)]
+    public void RejectsAKeySizeThatIsNotAes256(int keySize)
+    {
+        var derivation = new Argon2idKeyDerivation();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            derivation.DeriveKey(
+                Password,
+                RandomNumberGenerator.GetBytes(16),
+                FastParameters with { KeySize = keySize }));
+    }
 }

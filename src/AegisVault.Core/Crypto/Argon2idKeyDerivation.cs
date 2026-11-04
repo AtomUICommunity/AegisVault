@@ -22,9 +22,15 @@ public sealed class Argon2idKeyDerivation : IKeyDerivation
             throw new ArgumentException($"Unsupported KDF algorithm '{parameters.Algorithm}'.", nameof(parameters));
         }
 
-        if (salt.Length < KdfParameters.DefaultSaltSize)
+        // libsodium's crypto_pwhash requires a salt of exactly crypto_pwhash_SALTBYTES
+        // (16). Accepting a longer salt here deferred the failure to Sodium with an
+        // opaque SaltOutOfRangeException at key-derivation time, so a vault whose
+        // header said SaltSize=32 could be created but never unlocked.
+        if (salt.Length != KdfParameters.DefaultSaltSize)
         {
-            throw new ArgumentException("Salt is too short.", nameof(salt));
+            throw new ArgumentException(
+                $"Salt must be exactly {KdfParameters.DefaultSaltSize} bytes.",
+                nameof(salt));
         }
 
         var iterations = parameters.Iterations;
@@ -40,10 +46,15 @@ public sealed class Argon2idKeyDerivation : IKeyDerivation
             throw new ArgumentOutOfRangeException(nameof(parameters), "Argon2id memory cost out of range.");
         }
 
+        // The derived key is used directly as the AES-256 KEK, so its length is not
+        // negotiable: AesGcm only accepts 16/24/32 and this vault is AES-256. The old
+        // 16..64 range let a vault be created that failed later inside the cipher.
         var keyLength = parameters.KeySize;
-        if (keyLength is < 16 or > 64)
+        if (keyLength != KdfParameters.DefaultKeySize)
         {
-            throw new ArgumentOutOfRangeException(nameof(parameters), "Key length out of range.");
+            throw new ArgumentOutOfRangeException(
+                nameof(parameters),
+                $"Key length must be {KdfParameters.DefaultKeySize} bytes.");
         }
 
         // Sodium.Core exposes array-based APIs only; copy, derive, then scrub the copies.

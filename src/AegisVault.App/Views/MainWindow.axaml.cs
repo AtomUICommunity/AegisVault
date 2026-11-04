@@ -615,6 +615,7 @@ public partial class MainWindow : Window
             var dialog = new ConfirmWindow(
                 Loc.T("Main_PurgeEntryTitle"),
                 Loc.Format("Main_PurgeEntryMessage", entry.Title));
+            GuardCapture(dialog);
             if (await dialog.ShowDialog<bool>(this))
             {
                 viewModel.PurgeSelectedEntry();
@@ -637,6 +638,7 @@ public partial class MainWindow : Window
             var dialog = new ConfirmWindow(
                 Loc.T("Main_EmptyRecycleBinTitle"),
                 Loc.Format("Main_EmptyRecycleBinMessage", viewModel.DeletedCount));
+            GuardCapture(dialog);
             if (await dialog.ShowDialog<bool>(this))
             {
                 viewModel.EmptyRecycleBin();
@@ -648,6 +650,15 @@ public partial class MainWindow : Window
     }
 
     private void OnSettingsClicked(object? sender, RoutedEventArgs e) => _openSettings?.Invoke();
+
+    /// <summary>
+    /// Applies the screen-capture exclusion once a dialog has a native handle.
+    /// Confirmation dialogs carry entry titles and category names, so they belong to
+    /// the same protected surface as the main window; without this they were the one
+    /// place a screenshot could still reveal vault content.
+    /// </summary>
+    private void GuardCapture(Window dialog)
+        => dialog.Opened += (_, _) => _applyScreenGuard?.Invoke(dialog);
 
     /// <summary>Hero shortcut: pick a CSV export and import it (shared flow).</summary>
     private async void OnImportDataClicked(object? sender, RoutedEventArgs e)
@@ -1055,6 +1066,7 @@ public partial class MainWindow : Window
             }
 
             var dialog = new ConfirmWindow(Loc.T("Main_DeleteCategoryTitle"), message);
+            GuardCapture(dialog);
             if (await dialog.ShowDialog<bool>(this))
             {
                 viewModel.DeleteCategory(id, CategoryDeleteMode.PromoteChildren);

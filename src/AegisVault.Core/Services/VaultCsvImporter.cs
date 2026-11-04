@@ -145,7 +145,9 @@ public static class VaultCsvImporter
         {
             if (map.TryGetValue(key, out var index) && index < fields.Count)
             {
-                return fields[index].Trim();
+                // Strip the apostrophe the exporter adds to defeat spreadsheet
+                // formula injection, so an export/import round trip is lossless.
+                return VaultCsvExporter.StripFormulaEscape(fields[index].Trim());
             }
         }
 

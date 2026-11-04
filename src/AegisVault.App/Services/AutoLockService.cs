@@ -47,9 +47,42 @@ public sealed class AutoLockService : IDisposable
         }
     }
 
-    public void ReportScreenLocked() => Evaluate(screenLocked: true);
+    /// <summary>
+    /// Reports a Windows session lock. Called from the <c>SystemEvents</c> broadcast
+    /// thread, so the evaluation is marshalled onto the UI thread: everything
+    /// downstream of <see cref="LockTriggered"/> touches Avalonia controls, timers and
+    /// the SQLite session, none of which are thread safe.
+    /// </summary>
+    public void ReportScreenLocked() => EvaluateOnUiThread(screenLocked: true);
 
-    public void ReportSuspended() => Evaluate(suspended: true);
+    /// <summary>
+    /// Reports a system suspend. Same marshalling rules as
+    /// <see cref="ReportScreenLocked"/>: the watcher raises this from the broadcast
+    /// thread while the UI thread is still running.
+    /// </summary>
+    public void ReportSuspended() => EvaluateOnUiThread(suspended: true);
+
+    /// <summary>
+    /// Runs <see cref="Evaluate"/> on the UI thread.
+    /// <para>
+    /// Posting (rather than invoking synchronously) keeps the broadcast thread free and
+    /// still makes the whole lock sequence atomic with respect to the UI thread — the
+    /// earlier bug was that <c>LockVault</c> ran partly on the broadcast thread, so the
+    /// vault could be disposed before the lock overlay was shown. Posting removes that
+    /// interleaving entirely.
+    /// </para>
+    /// </summary>
+    private void EvaluateOnUiThread(bool screenLocked = false, bool suspended = false)
+    {
+        var dispatcher = Dispatcher.UIThread;
+        if (dispatcher.CheckAccess())
+        {
+            Evaluate(screenLocked, suspended);
+            return;
+        }
+
+        dispatcher.Post(() => Evaluate(screenLocked, suspended));
+    }
 
     public void Dispose()
     {

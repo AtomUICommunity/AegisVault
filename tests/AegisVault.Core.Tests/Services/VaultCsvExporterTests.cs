@@ -79,4 +79,63 @@ public sealed class VaultCsvExporterTests
         Assert.Equal(2, rows.Count);
         Assert.Contains(",Simple,", csv);
     }
+
+    /// <summary>
+    /// CWE-1236. A spreadsheet evaluates a cell that starts with one of these
+    /// characters, so an entry that arrived from an untrusted CSV must not be able
+    /// to smuggle a formula into a later plain-text export.
+    /// </summary>
+    [Theory]
+    [InlineData("=1+1")]
+    [InlineData("+1")]
+    [InlineData("-1")]
+    [InlineData("@SUM(A1)")]
+    [InlineData("=WEBSERVICE(\"http://evil\")")]
+    [InlineData("\tcmd")]
+    [InlineData("  =1+1")]
+    public void FormulaPayloadsAreNeutralisedOnExport(string payload)
+    {
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = payload, Username = "u", Password = "p" }],
+            []);
+
+        var rows = VaultCsvImporter.ParseCsv(csv);
+        var titleIndex = Array.IndexOf(VaultCsvExporter.Headers, "name");
+        var title = rows[1][titleIndex];
+
+        Assert.StartsWith("'", title);
+        Assert.Equal(payload, VaultCsvExporter.StripFormulaEscape(title));
+    }
+
+    [Fact]
+    public void FormulaEscapingDoesNotAffectOrdinaryValues()
+    {
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = "GitHub", Username = "-u", Password = "p" }],
+            []);
+
+        var rows = VaultCsvImporter.ParseCsv(csv);
+        var titleIndex = Array.IndexOf(VaultCsvExporter.Headers, "name");
+        var usernameIndex = Array.IndexOf(VaultCsvExporter.Headers, "login_username");
+
+        Assert.Equal("GitHub", rows[1][titleIndex]);
+        // "-u" is a payload, so the username column gets the guard.
+        Assert.Equal("'-u", rows[1][usernameIndex]);
+    }
+
+    [Fact]
+    public void FormulaPayloadSurvivesAnExportImportRoundTrip()
+    {
+        // The guard must not corrupt the stored value; only the on-disk form is escaped.
+        var original = "=1+1";
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = original, Username = "u", Password = "p" }],
+            []);
+
+        var (parsed, skipped) = VaultCsvImporter.Parse(csv);
+
+        Assert.Equal(0, skipped);
+        var entry = Assert.Single(parsed);
+        Assert.Equal(original, entry.Title);
+    }
 }

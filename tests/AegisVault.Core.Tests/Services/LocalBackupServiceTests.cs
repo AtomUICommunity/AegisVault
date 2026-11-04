@@ -196,6 +196,45 @@ public sealed class LocalBackupServiceTests : IDisposable
         Assert.False(validation.CanRestore);
     }
 
+    /// <summary>
+    /// Documents the constraint the fix is built on: <c>Lock()</c> drops the key but
+    /// keeps the SQLite connection, so the files stay open. On Windows the VFS does
+    /// not use FILE_SHARE_DELETE, so deleting the -wal/-shm side files fails and a
+    /// restore reports an IO error - this is why the app must tear the session down
+    /// (Dispose) instead of only locking it. If someone "optimises" the restore path
+    /// to call Lock(), this test fails.
+    /// </summary>
+    [Fact]
+    public void LockKeepsTheFileHandlesSoRestoreMustTearTheSessionDown()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Unix unlinks open files happily; the failure mode there is a silently
+            // diverging session rather than an IO error, so the assertion below
+            // would not hold. The Windows behaviour is what pins the design.
+            return;
+        }
+
+        using var vault = CreateVault("Mail", "Bank");
+        var service = new LocalBackupService(_vaultPath);
+        var backup = service.CreateBackup(vault, "0.6.0", keepCount: 7).ArtifactPath!;
+
+        vault.Lock();
+
+        // Still open: the restore cannot delete the side files.
+        var blocked = service.Restore(backup, _vaultPath);
+        Assert.False(blocked.Success, "a restore must not claim success while the session holds the file");
+
+        // After a real teardown the same restore works.
+        vault.Dispose();
+        var allowed = service.Restore(backup, _vaultPath);
+        Assert.True(allowed.Success, $"restore should succeed after Dispose, got {allowed.FailureCode}");
+
+        using var restored = VaultService.Open(_vaultPath);
+        Assert.Equal(VaultUnlockStatus.Success, restored.Unlock(Password));
+        Assert.Equal(["Bank", "Mail"], restored.Entries.Select(entry => entry.Title).OrderBy(title => title));
+    }
+
     [Fact]
     public void RestoreReplacesTheVaultAndKeepsASafetyCopy()
     {

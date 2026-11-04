@@ -69,6 +69,13 @@ public partial class App : Application
     private PixelPoint? _mainWindowPosition;
     private PixelSize? _mainWindowSize;
 
+    /// <summary>
+    /// A message produced by an action that destroys the session (currently only a
+    /// backup restore), shown once the user unlocks again. Without it the outcome of
+    /// that action would be lost with the window that triggered it.
+    /// </summary>
+    private string? _postUnlockStatus;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -310,6 +317,14 @@ public partial class App : Application
         var window = new UnlockWindow { DataContext = viewModel };
         viewModel.VaultOpened += vault => ShowMain(desktop, window, vault);
 
+        // The unlock window takes the master password, but it used to be the one
+        // surface left out of the capture guard. The original reason was that the
+        // first run has no config to consult and README screenshots needed it; the
+        // guard already treats a null config as "keep it on", and the screenshots now
+        // come from a seeded demo vault with the guard disabled, so there is no
+        // reason to leave the password field capturable.
+        window.Opened += (_, _) => ApplyScreenGuard(window);
+
         desktop.MainWindow = window;
         window.Show();
     }
@@ -353,6 +368,14 @@ public partial class App : Application
         if (unlockWindow?.DataContext is ViewModels.UnlockViewModel { RememberDeviceFailed: true })
         {
             viewModel.StatusMessage = Loc.T("Unlock_ErrorRememberDeviceFailed");
+        }
+
+        // An action that destroyed the previous session (a backup restore) left its
+        // outcome here; surface it on the first session that follows.
+        if (_postUnlockStatus is { } postUnlockStatus)
+        {
+            _postUnlockStatus = null;
+            viewModel.StatusMessage = postUnlockStatus;
         }
         viewModel.StartupGuideDismissed = _preferences.StartupGuideDismissed;
         viewModel.AttachStartupGuideCallback(() =>
@@ -581,6 +604,11 @@ public partial class App : Application
             viewModel.ApplyPreferences(_preferences);
             var window = new UnlockWindow { DataContext = viewModel };
             viewModel.VaultOpened += vault => ShowMain(_desktop!, window, vault);
+
+            // Same reasoning as CreateUnlockWindow: this is the unlock-after-lock
+            // path and it prompts for the master password, so it must be guarded too.
+            window.Opened += (_, _) => ApplyScreenGuard(window);
+
             await window.ShowDialog(_mainWindow);
         }
         catch (Exception)
@@ -1179,12 +1207,45 @@ public partial class App : Application
             validateBackup: LocalBackupService.Validate,
             restoreBackup: path =>
             {
-                if (_vault is null)
+                if (_vault is not { } vault)
                 {
                     return BackupResult.Failed("no-session", "The vault is locked.");
                 }
 
-                return new LocalBackupService(_vault.VaultPath).Restore(path, _vault.VaultPath);
+                var vaultPath = vault.VaultPath;
+
+                // The session must be destroyed *before* the files are touched.
+                // Restore deletes the target's -wal/-shm, and Windows refuses to
+                // delete them while this process still has them open (the SQLite
+                // VFS does not use FILE_SHARE_DELETE). Lock() alone is not enough:
+                // it only drops the key and leaves the connection open, so the
+                // restore used to fail with an IO error every time - the one
+                // recovery path a user needs after data loss was unusable.
+                //
+                // CleanupSession touches UI state (it closes the settings dialog
+                // that called us), so it has to run on the UI thread. Blocking on
+                // the Invoke is safe: RestoreBackupAsync awaits Task.Run around
+                // this callback, so the UI thread is sitting in its message loop
+                // and will service the request.
+                Dispatcher.UIThread.Invoke(() =>
+                {
+                    CloseSettingsWindow();
+                    LockVault();
+                });
+
+                // The vault is now locked and its connection closed, so the file
+                // is free. On success the user unlocks as usual (the backup holds
+                // the same vault, so the same master password applies).
+                var result = new LocalBackupService(vaultPath).Restore(path, vaultPath);
+
+                // The settings window is gone by now, so its status line can never
+                // show this. Carry the outcome across the unlock instead of losing
+                // it - the user needs to know whether the restore actually worked.
+                _postUnlockStatus = result.Success
+                    ? Loc.T("Settings_BackupRestoreDone")
+                    : Loc.Format("Settings_BackupStatusFailed", result.FailureCode ?? "unknown");
+
+                return result;
             },
             listBackups: () => _vault is null ? [] : new LocalBackupService(_vault.VaultPath).ListBackups());
         var window = new SettingsWindow { DataContext = viewModel };
@@ -1282,6 +1343,10 @@ public partial class App : Application
                 Loc.T("Main_LanguageSwitchMessage"),
                 Loc.T("Main_RestartNow"),
                 Loc.T("Main_RestartLater"));
+
+            // Confirmation dialogs sit inside the protected surface; see
+            // MainWindow.GuardCapture for the same reasoning.
+            dialog.Opened += (_, _) => ApplyScreenGuard(dialog);
 
             if (await dialog.ShowDialog<bool>(owner))
             {

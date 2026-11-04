@@ -149,6 +149,75 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Equal(VaultUnlockStatus.Corrupted, reopened.Unlock(Password));
     }
 
+    /// <summary>
+    /// The header AAD is the only thing standing between an attacker and a "downgrade
+    /// the KDF, then brute force the (now cheap) password" attack. It binds the format
+    /// version, algorithm, iteration count, memory cost, key size and salt; if any of
+    /// those is dropped from <see cref="VaultHeader.ComputeAssociatedData"/> a tampered
+    /// vault would unlock normally and nothing else in the suite would notice. These
+    /// four cases pin every parameter that matters.
+    /// </summary>
+    [Theory]
+    [InlineData("kdf_iterations", "3", "1000")]
+    [InlineData("kdf_memory", "8388608", "65536")]
+    [InlineData("kdf_algorithm", "argon2id", "pbkdf2-sha256")]
+    [InlineData("kdf_salt", null, null)]
+    public void TamperedKdfParametersAreRejected(string column, string? oldValue, string? newValue)
+    {
+        using (var vault = VaultService.CreateNew(_vaultPath, Password, FastOptions))
+        {
+            vault.AddEntry(TestEntry("GitHub"));
+        }
+
+        using (var connection = new SqliteConnection($"Data Source={_vaultPath}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            if (column == "kdf_salt")
+            {
+                // Same length, different bytes: only the AAD can detect this, since
+                // the salt itself is stored in the clear.
+                command.CommandText = "UPDATE vault_meta SET kdf_salt = randomblob(length(kdf_salt)) WHERE id = 1;";
+            }
+            else
+            {
+                // The algorithm and both costs live inside kdf_params (the separate
+                // kdf_algorithm column is written but never read - see
+                // VaultDatabase.ReadMeta). Rewriting the JSON is the only way to
+                // tamper with what actually drives key derivation.
+                var current = ReadKdfParams(connection);
+                var replacement = column switch
+                {
+                    "kdf_iterations" => current.Replace(
+                        $"\"Iterations\":{oldValue}", $"\"Iterations\":{newValue}", StringComparison.Ordinal),
+                    "kdf_memory" => current.Replace(
+                        $"\"MemoryBytes\":{oldValue}", $"\"MemoryBytes\":{newValue}", StringComparison.Ordinal),
+                    _ => current.Replace(
+                        $"\"Algorithm\":\"{oldValue}\"", $"\"Algorithm\":\"{newValue}\"", StringComparison.Ordinal),
+                };
+                Assert.NotEqual(current, replacement);
+                command.CommandText = "UPDATE vault_meta SET kdf_params = $new WHERE id = 1;";
+                command.Parameters.AddWithValue("$new", replacement);
+            }
+
+            command.ExecuteNonQuery();
+        }
+
+        using var reopened = VaultService.Open(_vaultPath);
+        var status = reopened.Unlock(Password);
+        Assert.NotEqual(VaultUnlockStatus.Success, status);
+        Assert.True(
+            status is VaultUnlockStatus.Corrupted or VaultUnlockStatus.WrongPassword,
+            $"a tampered {column} must never unlock, got {status}");
+    }
+
+    private static string ReadKdfParams(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT kdf_params FROM vault_meta WHERE id = 1;";
+        return (string)command.ExecuteScalar()!;
+    }
+
     [Fact]
     public void TruncatedNonceReportsCorrupted()
     {

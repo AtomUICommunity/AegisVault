@@ -126,4 +126,44 @@ public sealed class AutoLockServiceTests
         Assert.False(raised);
         return null;
     });
+
+    /// <summary>
+    /// The real trigger arrives on the <c>SystemEvents</c> broadcast thread, where
+    /// everything downstream of <see cref="AutoLockService.LockTriggered"/> (window
+    /// close, DispatcherTimer.Stop, vault dispose, lock overlay) would run off the UI
+    /// thread. The service must marshal to the UI thread itself so callers cannot get
+    /// this wrong; this test reports from a pool thread and asserts the handler ran
+    /// on the UI thread.
+    /// </summary>
+    [Fact]
+    public Task ScreenLockFromABackgroundThreadIsRaisedOnTheUiThread()
+        => Headless.RunAsync<object?>(async () =>
+    {
+        var config = new UserConfig { LockOnScreenLock = true };
+        using var service = new AutoLockService(() => config);
+
+        var uiThread = Avalonia.Threading.Dispatcher.UIThread;
+        AutoLockTrigger? trigger = null;
+        var raisedOnUiThread = false;
+
+        service.LockTriggered += value =>
+        {
+            trigger = value;
+            raisedOnUiThread = uiThread.CheckAccess();
+        };
+
+        var background = Task.Run(() => service.ReportScreenLocked());
+
+        // Posted work only runs when the headless loop gets a chance to process it.
+        for (var i = 0; i < 200 && trigger is null; i++)
+        {
+            await Task.Delay(10);
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        }
+
+        await background;
+        Assert.Equal(AutoLockTrigger.ScreenLock, trigger);
+        Assert.True(raisedOnUiThread, "LockTriggered must be raised on the UI thread");
+        return null;
+    });
 }
