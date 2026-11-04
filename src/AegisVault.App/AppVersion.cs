@@ -32,21 +32,40 @@ public static class AppVersion
 
     private static Assembly Self => typeof(AppVersion).Assembly;
 
-    private static string ReadShort()
+    private static string ReadShort() => ShortFrom(Self);
+
+    private static string ReadFull() => FullFrom(Self);
+
+    private static string ShortFrom(Assembly assembly)
     {
-        var version = Self.GetName().Version;
+        var version = assembly.GetName().Version;
         return version is null ? "0.0.0" : version.ToString(3);
     }
 
-    private static string ReadFull()
+    private static string FullFrom(Assembly assembly)
     {
-        var informational = Self
+        var informational = assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion;
 
+        return Parse(informational, ShortFrom(assembly)).Full;
+    }
+
+    /// <summary>
+    /// Reduces a raw informational version to the two labels the UI needs.
+    /// <para>
+    /// Exposed for tests: the rules are non-trivial (keep the first revision, drop any
+    /// further build metadata) and a change here would silently alter what users and
+    /// bug reports see.
+    /// </para>
+    /// </summary>
+    /// <param name="informational">The <see cref="AssemblyInformationalVersionAttribute"/> value, possibly null.</param>
+    /// <param name="shortForm">Fallback/short label, used when the informational value is missing.</param>
+    internal static (string Short, string Full) Parse(string? informational, string shortForm)
+    {
         if (string.IsNullOrWhiteSpace(informational))
         {
-            return Short;
+            return (shortForm, shortForm);
         }
 
         // Keep the "+revision" but drop any extra build metadata after a second '+'
@@ -54,7 +73,7 @@ public static class AppVersion
         var plus = informational.IndexOf('+');
         if (plus < 0)
         {
-            return informational;
+            return (shortForm, informational);
         }
 
         var head = informational[..plus];
@@ -65,6 +84,6 @@ public static class AppVersion
             tail = tail[..nextPlus];
         }
 
-        return $"{head}+{tail}";
+        return (shortForm, tail.Length == 0 ? head : $"{head}+{tail}");
     }
 }

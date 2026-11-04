@@ -760,10 +760,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The chevron band toggles on a single click, so it is excluded from the
+        // double-click path. Without this a double click on the arrow would toggle
+        // twice (collapse then expand) and look like nothing happened.
+        var position = e.GetPosition(border);
+        var indent = Math.Max(0, row.Depth - 1) * CategoryIndentConverter.IndentPerLevel;
+        var onChevron = row.HasChildren &&
+                        position.X >= indent &&
+                        position.X <= indent + ChevronHitWidth;
+
         // Double-click toggles the branch. This has to be decided before the drag
         // gesture is armed: the second press of a double click would otherwise be
         // swallowed by CategoryDrag and the toggle would never happen.
-        if (e.ClickCount >= 2 && row.HasChildren)
+        if (e.ClickCount >= 2 && row.HasChildren && !onChevron)
         {
             CancelCategoryDrag();
             ToggleCategoryBranch(row);
@@ -773,11 +782,7 @@ public partial class MainWindow : Window
         // Hitting the chevron expands/collapses instead of starting a drag. The row's
         // content grid is indented by (Depth - 1) steps, and the chevron occupies the
         // first column of that grid, so its band is [indent, indent + width).
-        var position = e.GetPosition(border);
-        var indent = Math.Max(0, row.Depth - 1) * CategoryIndentConverter.IndentPerLevel;
-        if (row.HasChildren &&
-            position.X >= indent &&
-            position.X <= indent + ChevronHitWidth)
+        if (onChevron)
         {
             ToggleCategoryBranch(row);
             CancelCategoryDrag();

@@ -118,20 +118,26 @@ public static class VaultCsvExporter
     }
 
     /// <summary>
-    /// True when a spreadsheet would interpret the cell as a formula. Leading spaces
-    /// are skipped first, because Excel trims them before parsing the cell.
+    /// True when a spreadsheet would evaluate the cell once it is displayed, i.e. its
+    /// first character that is not a space or an apostrophe is one of
+    /// <c>= + - @</c> (tab/CR count too).
+    /// <para>
+    /// Apostrophes are skipped because that is the escape character: <c>'=1+1</c> still
+    /// reads as a formula in a spreadsheet, so it still needs a guard. Spaces are
+    /// skipped because Excel trims them before parsing.
+    /// </para>
     /// </summary>
-    private static bool NeedsFormulaEscape(string text)
+    private static bool LooksLikeFormula(string text)
     {
         foreach (var character in text)
         {
             switch (character)
             {
+                case ' ' or '\'':
+                    // Escape character or trimmable space; keep looking.
+                    continue;
                 case '=' or '+' or '-' or '@' or '\t' or '\r':
                     return true;
-                case ' ':
-                    // Keep looking: "  =SUM(...)" is still a formula once trimmed.
-                    continue;
                 default:
                     return false;
             }
@@ -141,12 +147,26 @@ public static class VaultCsvExporter
     }
 
     /// <summary>
+    /// The apostrophe guard prepended to a cell a spreadsheet would evaluate.
+    /// <para>
+    /// Always exactly one apostrophe, and the importer always strips exactly one. That
+    /// pair is what makes the round trip lossless for every input: the guard sits in
+    /// front of whatever the value already was, so removing it gives the value back -
+    /// including values that already start with apostrophes (<c>'=1+1</c> exports as
+    /// <c>''=1+1</c> and comes back as <c>'=1+1</c>).
+    /// </para>
+    /// </summary>
+    private static string BuildFormulaGuard(string text) => "'";
+
+    /// <summary>
     /// Undoes the apostrophe added by <see cref="AppendValue"/>. Applied to imported
-    /// cells so an export/import round trip returns the original value.
+    /// cells so an export/import round trip returns the original value exactly.
     /// </summary>
     internal static string StripFormulaEscape(string value)
     {
-        if (value.Length > 1 && value[0] == '\'' && NeedsFormulaEscape(value[1..]))
+        // The guard always makes the cell start with an apostrophe followed by something
+        // a spreadsheet would evaluate, so both tests must hold before stripping.
+        if (value.Length > 1 && value[0] == '\'' && LooksLikeFormula(value[1..]))
         {
             return value[1..];
         }
@@ -169,12 +189,22 @@ public static class VaultCsvExporter
     {
         var text = value ?? string.Empty;
 
-        if (NeedsFormulaEscape(text))
+        var guarded = false;
+        if (LooksLikeFormula(text))
         {
-            text = "'" + text;
+            text = BuildFormulaGuard(text) + text;
+            guarded = true;
         }
 
-        var needsQuotes = text.Contains(',') || text.Contains('"') || text.Contains('\n') || text.Contains('\r');
+        // A guarded cell must always be quoted, even when it holds none of the RFC-4180
+        // special characters. Otherwise the leading apostrophes sit bare at the start of
+        // the field and a reader treats them as quoting syntax, eating one character per
+        // round trip ("'=1+1" came back as "''=1+1").
+        var needsQuotes = guarded ||
+                          text.Contains(',') ||
+                          text.Contains('"') ||
+                          text.Contains('\n') ||
+                          text.Contains('\r');
         if (!needsQuotes)
         {
             builder.Append(text);

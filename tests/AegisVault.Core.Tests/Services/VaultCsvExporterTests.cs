@@ -103,7 +103,12 @@ public sealed class VaultCsvExporterTests
         var titleIndex = Array.IndexOf(VaultCsvExporter.Headers, "name");
         var title = rows[1][titleIndex];
 
-        Assert.StartsWith("'", title);
+        // ParseCsv already removed the RFC-4180 wrapper, so the cell starts with the
+        // guard and ends with the payload.
+        Assert.StartsWith("'", title, StringComparison.Ordinal);
+        Assert.EndsWith(payload, title, StringComparison.Ordinal);
+
+        // And the importer returns exactly the original value.
         Assert.Equal(payload, VaultCsvExporter.StripFormulaEscape(title));
     }
 
@@ -135,6 +140,82 @@ public sealed class VaultCsvExporterTests
         var (parsed, skipped) = VaultCsvImporter.Parse(csv);
 
         Assert.Equal(0, skipped);
+        var entry = Assert.Single(parsed);
+        Assert.Equal(original, entry.Title);
+    }
+
+    /// <summary>
+    /// Values that already begin with an apostrophe are the hard case: the importer
+    /// cannot tell the guard from the user's own character. A single apostrophe guard
+    /// lost one character per round trip (<c>'=1+1</c> came back as <c>=1+1</c>), so the
+    /// guard is now "leading apostrophes + 1" and the importer strips exactly one.
+    /// </summary>
+    [Theory]
+    [InlineData("'=1+1")]
+    [InlineData("''=1+1")]
+    [InlineData("'''=SUM(A1)")]
+    [InlineData("'@user")]
+    [InlineData("'-1")]
+    [InlineData("'=WEBSERVICE(\"x\")")]
+    public void ValuesStartingWithAnApostropheRoundTripExactly(string original)
+    {
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = original, Username = "u", Password = "p" }],
+            []);
+
+        var (parsed, _) = VaultCsvImporter.Parse(csv);
+
+        var entry = Assert.Single(parsed);
+        Assert.Equal(original, entry.Title);
+    }
+
+    /// <summary>
+    /// An apostrophe that does not precede a formula character is ordinary text and must
+    /// not be touched in either direction.
+    /// </summary>
+    [Theory]
+    [InlineData("'hello")]
+    [InlineData("it's fine")]
+    [InlineData("'")]
+    public void OrdinaryApostrophesAreLeftAlone(string original)
+    {
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = original, Username = "u", Password = "p" }],
+            []);
+
+        var (parsed, _) = VaultCsvImporter.Parse(csv);
+
+        var entry = Assert.Single(parsed);
+        Assert.Equal(original, entry.Title);
+    }
+
+    /// <summary>
+    /// A whole sweep of values that look like formulas or passwords must survive the
+    /// round trip, so the guard can never silently rewrite user data.
+    /// <para>
+    /// Leading whitespace is excluded on purpose: the importer trims every field (that
+    /// is what makes third-party CSVs usable), so <c>"  =1+1"</c> and <c>"\tcmd"</c>
+    /// lose their prefix regardless of the formula guard. That is a pre-existing
+    /// limitation of the importer, not something the guard introduced.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("=1+1")]
+    [InlineData("+1")]
+    [InlineData("-1")]
+    [InlineData("@SUM(A1)")]
+    [InlineData("-my-password")]
+    [InlineData("@user")]
+    [InlineData("+1234567")]
+    [InlineData("GitHub")]
+    public void EveryPayloadSurvivesTheRoundTrip(string original)
+    {
+        var csv = VaultCsvExporter.Export(
+            [new PasswordEntry { Title = original, Username = "u", Password = "p" }],
+            []);
+
+        var (parsed, _) = VaultCsvImporter.Parse(csv);
+
         var entry = Assert.Single(parsed);
         Assert.Equal(original, entry.Title);
     }
