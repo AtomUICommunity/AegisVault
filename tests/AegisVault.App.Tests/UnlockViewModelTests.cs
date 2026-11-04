@@ -308,7 +308,7 @@ public sealed class UnlockViewModelTests : IDisposable
     }
 
     [Fact]
-    public void ValidationErrorsLandOnTheirOwnFields() => Headless.Run(() =>
+    public Task ValidationErrorsLandOnTheirOwnFields() => Headless.Run(() =>
     {
         var model = new UnlockViewModel
         {
