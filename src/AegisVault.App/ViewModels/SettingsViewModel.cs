@@ -264,8 +264,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private string? statusMessage;
 
-    public string VersionText =>
-        $"AegisVault {typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.1.0"}";
+    public string VersionText => $"AegisVault {AppVersion.Full}";
 
     [RelayCommand]
     private void Save()

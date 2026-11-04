@@ -80,32 +80,6 @@ public sealed class MainWindowTests
     });
 
     [Fact]
-    public Task ThemeButtonExposesThreeModes() => Headless.Run(() =>
-    {
-        var window = new MainWindow();
-
-        var theme = window.FindControl<AtomUI.Desktop.Controls.DropdownButton>("ThemeButton");
-        Assert.NotNull(theme);
-        Assert.False(theme!.IsArrowVisible);
-
-        var items = ReadRadioItems(theme, "ThemeMode");
-        Assert.Equal(3, items.Count);
-    });
-
-    [Fact]
-    public Task LanguageButtonExposesThreeModes() => Headless.Run(() =>
-    {
-        var window = new MainWindow();
-
-        var language = window.FindControl<AtomUI.Desktop.Controls.DropdownButton>("LanguageButton");
-        Assert.NotNull(language);
-        Assert.False(language!.IsArrowVisible);
-
-        var items = ReadRadioItems(language, "LanguageMode");
-        Assert.Equal(3, items.Count);
-    });
-
-    [Fact]
     public Task FilteringKeepsTheSelectionWhenTheEntryStillMatches() => Headless.Run(() =>
     {
         var directory = Path.Combine(Path.GetTempPath(), "aegis-ui-tests", Guid.NewGuid().ToString("N"));

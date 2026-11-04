@@ -239,18 +239,27 @@
                                Text="{Binding BusyText}"
                                IsVisible="{Binding IsBusy}"
                                Opacity="0.6" />
-                    <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-                        <atom:Button ButtonType="Primary"
-                                     Content="{loc:Str Unlock_CreateVault}"
-                                     Command="{Binding CreateCommand}"
-                                     IsVisible="{Binding IsCreateMode}"
-                                     IsDefault="True" />
-                        <atom:Button ButtonType="Primary"
-                                     Content="{loc:Str Unlock_Unlock}"
-                                     Command="{Binding UnlockCommand}"
-                                     IsVisible="{Binding !IsCreateMode}"
-                                     IsDefault="True" />
-                    </StackPanel>
+                    <Grid Grid.Row="5" ColumnDefinitions="*,Auto">
+                        <!-- Version sits on the button row so it costs no vertical space;
+                             the window is height-constrained and its content scrolls. -->
+                        <TextBlock Grid.Column="0"
+                                   Text="{Binding VersionText}"
+                                   FontSize="11"
+                                   Opacity="0.45"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                            <atom:Button ButtonType="Primary"
+                                         Content="{loc:Str Unlock_CreateVault}"
+                                         Command="{Binding CreateCommand}"
+                                         IsVisible="{Binding IsCreateMode}"
+                                         IsDefault="True" />
+                            <atom:Button ButtonType="Primary"
+                                         Content="{loc:Str Unlock_Unlock}"
+                                         Command="{Binding UnlockCommand}"
+                                         IsVisible="{Binding !IsCreateMode}"
+                                         IsDefault="True" />
+                        </StackPanel>
+                    </Grid>
                 </Grid>
             </Border>
         </Border>

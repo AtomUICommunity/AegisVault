@@ -217,6 +217,8 @@ internal static class EnStrings
         ["Main_WelcomeTitle"] = "Welcome to AegisVault",
         ["Main_SelectEntryHint"] = "Select an entry to view details",
         ["Main_Settings"] = "Settings",
+        ["Main_MenuTheme"] = "Theme",
+        ["Main_MenuAllSettings"] = "All settings…",
         ["Main_StatusDeleted"] = "Entry deleted.",
         ["Main_StatusMovedToRecycleBin"] = "Moved to the recycle bin.",
         ["Main_StatusEntryRestored"] = "Entry restored.",

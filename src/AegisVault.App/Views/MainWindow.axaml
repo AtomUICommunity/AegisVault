@@ -382,71 +382,46 @@
                                        VerticalAlignment="Center"
                                        IsVisible="{Binding !HasSecurityIssues}" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
-                                <!-- Theme modes: the icon follows the active mode (system/light/dark). -->
-                                <atom:DropdownButton Name="ThemeButton"
-                                                     AutomationProperties.AutomationId="ThemeButton"
+                                <!-- Appearance and settings share one menu: the toolbar keeps
+                                     only what is used daily, and the language switch (a
+                                     restart-level change) lives in the settings window.
+                                     The lock stays a separate button on purpose - it is a
+                                     security action and must remain one click away, not
+                                     buried behind a menu. -->
+                                <atom:DropdownButton Name="SettingsButton"
+                                                     AutomationProperties.AutomationId="SettingsButton"
                                                      ButtonType="Text"
                                                      TriggerType="Click"
                                                      IsArrowVisible="False"
                                                      IsShowOpenIndicator="False"
-                                                     Icon="{Binding ThemePreference, Converter={StaticResource ThemeIconConverter}}"
-                                                     ToolTip.Tip="{loc:Str Settings_Theme}"
-                                                     Click="OnThemeButtonClicked">
+                                                     Icon="{antd:AntDesignIconProvider SettingOutlined}"
+                                                     ToolTip.Tip="{loc:Str Main_Settings}"
+                                                     Click="OnSettingsButtonClicked">
                                     <atom:DropdownButton.DropdownFlyout>
-                                        <atom:MenuFlyout Opened="OnThemeFlyoutOpened">
-                                            <atom:MenuItem x:Name="ThemeSystemItem"
-                                                           Header="{loc:Str Settings_ThemeSystem}"
-                                                           ToggleType="Radio"
-                                                           GroupName="ThemeMode"
-                                                           Click="OnThemeSystemClicked" />
-                                            <atom:MenuItem x:Name="ThemeLightItem"
-                                                           Header="{loc:Str Settings_ThemeLight}"
-                                                           ToggleType="Radio"
-                                                           GroupName="ThemeMode"
-                                                           Click="OnThemeLightClicked" />
-                                            <atom:MenuItem x:Name="ThemeDarkItem"
-                                                           Header="{loc:Str Settings_ThemeDark}"
-                                                           ToggleType="Radio"
-                                                           GroupName="ThemeMode"
-                                                           Click="OnThemeDarkClicked" />
+                                        <atom:MenuFlyout Opened="OnSettingsFlyoutOpened">
+                                            <atom:MenuItemGroup Header="{loc:Str Main_MenuTheme}">
+                                                <atom:MenuItem x:Name="ThemeSystemItem"
+                                                               Header="{loc:Str Settings_ThemeSystem}"
+                                                               ToggleType="Radio"
+                                                               GroupName="ThemeMode"
+                                                               Click="OnThemeSystemClicked" />
+                                                <atom:MenuItem x:Name="ThemeLightItem"
+                                                               Header="{loc:Str Settings_ThemeLight}"
+                                                               ToggleType="Radio"
+                                                               GroupName="ThemeMode"
+                                                               Click="OnThemeLightClicked" />
+                                                <atom:MenuItem x:Name="ThemeDarkItem"
+                                                               Header="{loc:Str Settings_ThemeDark}"
+                                                               ToggleType="Radio"
+                                                               GroupName="ThemeMode"
+                                                               Click="OnThemeDarkClicked" />
+                                            </atom:MenuItemGroup>
+                                            <atom:MenuItem x:Name="OpenSettingsItem"
+                                                           Header="{loc:Str Main_MenuAllSettings}"
+                                                           Click="OnOpenAllSettingsClicked" />
                                         </atom:MenuFlyout>
                                     </atom:DropdownButton.DropdownFlyout>
                                 </atom:DropdownButton>
-                                <!-- Language menu: takes effect after a restart (offered right away). -->
-                                <atom:DropdownButton Name="LanguageButton"
-                                                     AutomationProperties.AutomationId="LanguageButton"
-                                                     ButtonType="Text"
-                                                     TriggerType="Click"
-                                                     IsArrowVisible="False"
-                                                     IsShowOpenIndicator="False"
-                                                     Icon="{antd:AntDesignIconProvider TranslationOutlined}"
-                                                     ToolTip.Tip="{loc:Str Settings_SectionLanguage}"
-                                                     Click="OnLanguageButtonClicked">
-                                    <atom:DropdownButton.DropdownFlyout>
-                                        <atom:MenuFlyout Opened="OnLanguageFlyoutOpened">
-                                            <atom:MenuItem x:Name="LanguageSystemItem"
-                                                           Header="{loc:Str Settings_LanguageSystem}"
-                                                           ToggleType="Radio"
-                                                           GroupName="LanguageMode"
-                                                           Click="OnLanguageSystemClicked" />
-                                            <atom:MenuItem x:Name="LanguageZhItem"
-                                                           Header="{loc:Str Settings_LanguageZh}"
-                                                           ToggleType="Radio"
-                                                           GroupName="LanguageMode"
-                                                           Click="OnLanguageZhClicked" />
-                                            <atom:MenuItem x:Name="LanguageEnItem"
-                                                           Header="{loc:Str Settings_LanguageEn}"
-                                                           ToggleType="Radio"
-                                                           GroupName="LanguageMode"
-                                                           Click="OnLanguageEnClicked" />
-                                        </atom:MenuFlyout>
-                                    </atom:DropdownButton.DropdownFlyout>
-                                </atom:DropdownButton>
-                                <atom:Button ButtonType="Text"
-                                             Icon="{antd:AntDesignIconProvider SettingOutlined}"
-                                             ToolTip.Tip="{loc:Str Main_Settings}"
-                                             AutomationProperties.AutomationId="SettingsButton"
-                                             Click="OnSettingsClicked" />
                                 <atom:Button ButtonType="Text"
                                              Icon="{antd:AntDesignIconProvider LockOutlined}"
                                              ToolTip.Tip="{loc:Str Main_Lock}"

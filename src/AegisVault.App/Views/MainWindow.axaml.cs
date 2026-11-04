@@ -760,6 +760,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Double-click toggles the branch. This has to be decided before the drag
+        // gesture is armed: the second press of a double click would otherwise be
+        // swallowed by CategoryDrag and the toggle would never happen.
+        if (e.ClickCount >= 2 && row.HasChildren)
+        {
+            CancelCategoryDrag();
+            ToggleCategoryBranch(row);
+            return;
+        }
+
         // Hitting the chevron expands/collapses instead of starting a drag. The row's
         // content grid is indented by (Depth - 1) steps, and the chevron occupies the
         // first column of that grid, so its band is [indent, indent + width).
@@ -1099,10 +1109,10 @@ public partial class MainWindow : Window
     private void OnSortByRecentClicked(object? sender, RoutedEventArgs e)
         => (DataContext as MainViewModel)?.SortByRecentCommand.Execute(null);
 
-    private void OnThemeButtonClicked(object? sender, RoutedEventArgs e)
-        => OpenFlyoutOnKeyboard(ThemeButton);
+    private void OnSettingsButtonClicked(object? sender, RoutedEventArgs e)
+        => OpenFlyoutOnKeyboard(SettingsButton);
 
-    private void OnThemeFlyoutOpened(object? sender, EventArgs e)
+    private void OnSettingsFlyoutOpened(object? sender, EventArgs e)
     {
         if (DataContext is not MainViewModel viewModel)
         {
@@ -1116,6 +1126,8 @@ public partial class MainWindow : Window
         ThemeDarkItem.IsChecked = viewModel.ThemePreference == "dark";
     }
 
+    private void OnOpenAllSettingsClicked(object? sender, RoutedEventArgs e) => _openSettings?.Invoke();
+
     private void OnThemeSystemClicked(object? sender, RoutedEventArgs e) => SetTheme("system");
 
     private void OnThemeLightClicked(object? sender, RoutedEventArgs e) => SetTheme("light");
@@ -1124,27 +1136,6 @@ public partial class MainWindow : Window
 
     private void SetTheme(string theme)
         => (DataContext as MainViewModel)?.SetThemeCommand.Execute(theme);
-
-    private void OnLanguageButtonClicked(object? sender, RoutedEventArgs e)
-        => OpenFlyoutOnKeyboard(LanguageButton);
-
-    private void OnLanguageFlyoutOpened(object? sender, EventArgs e)
-    {
-        if (DataContext is not MainViewModel viewModel)
-        {
-            return;
-        }
-
-        LanguageSystemItem.IsChecked = viewModel.LanguagePreference == Loc.System;
-        LanguageZhItem.IsChecked = viewModel.LanguagePreference == Loc.Chinese;
-        LanguageEnItem.IsChecked = viewModel.LanguagePreference == Loc.English;
-    }
-
-    private void OnLanguageSystemClicked(object? sender, RoutedEventArgs e) => SetLanguage(Loc.System);
-
-    private void OnLanguageZhClicked(object? sender, RoutedEventArgs e) => SetLanguage(Loc.Chinese);
-
-    private void OnLanguageEnClicked(object? sender, RoutedEventArgs e) => SetLanguage(Loc.English);
 
     private void SetLanguage(string language)
         => (DataContext as MainViewModel)?.SetLanguageCommand.Execute(language);

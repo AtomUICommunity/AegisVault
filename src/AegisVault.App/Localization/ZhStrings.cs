@@ -217,6 +217,8 @@ internal static class ZhStrings
         ["Main_WelcomeTitle"] = "欢迎使用 AegisVault",
         ["Main_SelectEntryHint"] = "选择一个条目查看详情",
         ["Main_Settings"] = "设置",
+        ["Main_MenuTheme"] = "主题",
+        ["Main_MenuAllSettings"] = "全部设置…",
         ["Main_StatusDeleted"] = "已删除条目。",
         ["Main_StatusMovedToRecycleBin"] = "已移入回收站。",
         ["Main_StatusEntryRestored"] = "已恢复条目。",

@@ -104,6 +104,13 @@ public partial class UnlockViewModel : ObservableObject
 
     public bool HasRecentVaultItems => RecentVaultItems.Count > 0;
 
+    /// <summary>
+    /// Short version (<c>0.6.3</c>) for the unlock page. The build hash lives in the
+    /// settings page instead: someone about to unlock does not need it, but a bug
+    /// report does.
+    /// </summary>
+    public string VersionText => AppVersion.Short;
+
     /// <summary>Mode-specific busy text (creating is not the same as opening).</summary>
     public string BusyText => Loc.T(IsCreateMode ? "Unlock_BusyCreating" : "Unlock_BusyUnlocking");
 
