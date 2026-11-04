@@ -5,6 +5,7 @@ using AegisVault.App.Localization;
 using AegisVault.App.Services;
 using AegisVault.Core.Models;
 using AegisVault.Core.Services;
+using AegisVault.Core.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -443,7 +444,16 @@ public partial class SettingsViewModel : ObservableObject
             var csv = VaultCsvExporter.Export(_vault.Entries, _vault.Categories);
 
             // A BOM keeps Excel and other tools from misreading non-ASCII titles.
-            File.WriteAllText(path, csv, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            // The file holds every password in plaintext, so it is written with
+            // owner-only permissions and atomically - a crash must not leave a
+            // partial plaintext dump behind.
+            var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+            VaultFilePermissions.WriteSecretFile(path, stream =>
+            {
+                using var writer = new StreamWriter(stream, encoding, leaveOpen: true);
+                writer.Write(csv);
+            });
+
             StatusMessage = Loc.T("Settings_StatusExportDone");
         }
         catch (Exception exception) when (exception is ObjectDisposedException or InvalidOperationException)
@@ -468,7 +478,10 @@ public partial class SettingsViewModel : ObservableObject
             // Argon2id over the default parameters takes about a second: keep it
             // off the UI thread so the settings window stays responsive.
             var bytes = await Task.Run(() => VaultExportService.ExportEncrypted(entries, categories, passphraseBytes));
-            await File.WriteAllBytesAsync(path, bytes);
+
+            // Owner-only permissions and no half-written file on failure: the payload
+            // is still secret, and a crash mid-write must not leave a truncated copy.
+            await Task.Run(() => VaultFilePermissions.WriteSecretFile(path, stream => stream.Write(bytes)));
             StatusMessage = Loc.T("Settings_StatusExportDone");
         }
         catch (Exception)

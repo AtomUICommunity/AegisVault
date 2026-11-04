@@ -17,6 +17,20 @@ public sealed class AvaloniaClipboardAccess : IClipboardAccess
 
     public async Task SetTextAsync(string text)
     {
+        var handle = _topLevelProvider()?.TryGetPlatformHandle()?.Handle ?? 0;
+
+        // Preferred path on Windows: one clipboard transaction that writes the text and
+        // the "do not record" markers together. Writing through the framework first
+        // left a window where the secret sat on the clipboard without the flags, which
+        // the clipboard history could capture permanently.
+        if (ClipboardExclusion.TrySetSecretText(handle, text))
+        {
+            return;
+        }
+
+        // Fallback (non-Windows, or the clipboard was busy): write through Avalonia and
+        // mark afterwards. The mark can fail silently here, which is why the primary
+        // path above exists.
         if (GetClipboard() is not { } clipboard)
         {
             return;
@@ -26,9 +40,6 @@ public sealed class AvaloniaClipboardAccess : IClipboardAccess
         transfer.Add(DataTransferItem.CreateText(text));
         await clipboard.SetDataAsync(transfer);
 
-        // Keep secrets out of the Windows clipboard history and cloud
-        // clipboard while this process still owns the clipboard.
-        var handle = _topLevelProvider()?.TryGetPlatformHandle()?.Handle ?? 0;
         ClipboardExclusion.TryMarkCurrent(handle);
     }
 

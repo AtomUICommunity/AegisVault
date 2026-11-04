@@ -14,7 +14,18 @@ public sealed class AutoLockService : IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly DispatcherTimer _timer;
 
-    private DateTimeOffset _lastActivity;
+    /// <summary>
+    /// Idle tracking uses <see cref="TimeProvider.GetTimestamp"/>, not wall-clock time.
+    /// <para>
+    /// <see cref="TimeProvider.GetUtcNow"/> is not monotonic: setting the clock
+    /// backwards (admin rights, or a bad NTP sync) makes the elapsed idle time
+    /// negative, the threshold can never be reached and auto-lock silently stops
+    /// working - an easy bypass for anyone who can touch the system clock. Timestamps
+    /// are immune to that. Wall-clock time is still what the policy is expressed in,
+    /// so only the delta is computed from stamps.
+    /// </para>
+    /// </summary>
+    private long _lastActivityTimestamp;
     private bool _minimized;
     private bool _disposed;
 
@@ -24,7 +35,7 @@ public sealed class AutoLockService : IDisposable
     {
         _configProvider = configProvider;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _lastActivity = _timeProvider.GetUtcNow();
+        _lastActivityTimestamp = _timeProvider.GetTimestamp();
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _timer.Tick += (_, _) => Evaluate();
@@ -34,7 +45,7 @@ public sealed class AutoLockService : IDisposable
     /// <summary>Resets the idle clock; also clears the minimized state.</summary>
     public void ReportActivity()
     {
-        _lastActivity = _timeProvider.GetUtcNow();
+        _lastActivityTimestamp = _timeProvider.GetTimestamp();
         _minimized = false;
     }
 
@@ -114,7 +125,7 @@ public sealed class AutoLockService : IDisposable
 
         var trigger = AutoLockPolicy.Evaluate(
             config,
-            _timeProvider.GetUtcNow() - _lastActivity,
+            _timeProvider.GetElapsedTime(_lastActivityTimestamp),
             minimized: _minimized,
             screenLocked: screenLocked,
             suspended: suspended);

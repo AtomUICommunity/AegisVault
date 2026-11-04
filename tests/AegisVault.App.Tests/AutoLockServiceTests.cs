@@ -7,13 +7,34 @@ namespace AegisVault.App.Tests;
 
 public sealed class AutoLockServiceTests
 {
+    /// <summary>
+    /// Fake clock that keeps wall-clock time and monotonic time separate, so tests can
+    /// cover the case the real fix targets: the wall clock jumping, which must not
+    /// disturb idle detection.
+    /// </summary>
     private sealed class FakeTimeProvider : TimeProvider
     {
         private DateTimeOffset _now = DateTimeOffset.UtcNow;
+        private long _timestamp = 1_000_000;
 
         public override DateTimeOffset GetUtcNow() => _now;
 
-        public void Advance(TimeSpan delta) => _now += delta;
+        public override long GetTimestamp() => _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        /// <summary>Advances both clocks together (ordinary elapsed time).</summary>
+        public void Advance(TimeSpan delta)
+        {
+            _now += delta;
+            _timestamp += (long)(delta.TotalSeconds * TimeSpan.TicksPerSecond);
+        }
+
+        /// <summary>
+        /// Moves the wall clock only, leaving monotonic time alone - exactly what a
+        /// system-clock change looks like to the service.
+        /// </summary>
+        public void ShiftWallClock(TimeSpan delta) => _now += delta;
     }
 
     [Fact]
@@ -124,6 +145,58 @@ public sealed class AutoLockServiceTests
         service.ReportScreenLocked();
 
         Assert.False(raised);
+        return null;
+    });
+
+    /// <summary>
+    /// Idle detection must use a monotonic clock. With wall-clock time, setting the
+    /// system clock backwards made the elapsed idle time negative, so the threshold
+    /// could never be met and auto-lock silently stopped working - a low-effort bypass
+    /// for anyone with admin rights or a bad NTP sync.
+    /// </summary>
+    [Fact]
+    public Task MovingTheSystemClockBackwardsDoesNotDisableIdleLock() => Headless.RunAsync<object?>(async () =>
+    {
+        var config = new UserConfig { AutoLockMinutes = 1, LockOnMinimize = false };
+        var time = new FakeTimeProvider();
+        using var service = new AutoLockService(() => config, time);
+
+        AutoLockTrigger? trigger = null;
+        service.LockTriggered += value => trigger = value;
+
+        // A full minute of real elapsed time...
+        time.Advance(TimeSpan.FromMinutes(1));
+        // ...while the wall clock is pushed back an hour (NTP correction / manual).
+        time.ShiftWallClock(TimeSpan.FromHours(-1));
+
+        // Minimize evaluates without forcing a higher-priority trigger (ScreenLock /
+        // Suspend would win the policy order), so only Idle can fire here.
+        service.SetMinimized(true);
+
+        Assert.Equal(AutoLockTrigger.Idle, trigger);
+        return null;
+    });
+
+    /// <summary>
+    /// The converse: a forward wall-clock jump must not lock early. Only real elapsed
+    /// time counts, so the vault is not locked just because the user changed the date.
+    /// </summary>
+    [Fact]
+    public Task MovingTheSystemClockForwardDoesNotLockEarly() => Headless.RunAsync<object?>(async () =>
+    {
+        var config = new UserConfig { AutoLockMinutes = 30, LockOnMinimize = false };
+        var time = new FakeTimeProvider();
+        using var service = new AutoLockService(() => config, time);
+
+        AutoLockTrigger? trigger = null;
+        service.LockTriggered += value => trigger = value;
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        time.ShiftWallClock(TimeSpan.FromDays(2));
+
+        service.SetMinimized(true);
+
+        Assert.Null(trigger);
         return null;
     });
 
