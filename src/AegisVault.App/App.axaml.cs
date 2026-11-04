@@ -71,10 +71,14 @@ public partial class App : Application
 
     /// <summary>
     /// A message produced by an action that destroys the session (currently only a
-    /// backup restore), shown once the user unlocks again. Without it the outcome of
-    /// that action would be lost with the window that triggered it.
+    /// backup restore), shown once the user unlocks again.
+    /// <para>
+    /// Paired with the path it belongs to: a stale message must not surface on an
+    /// unrelated vault after a restart, days later. <see cref="ShowMain"/> only shows it
+    /// when the vault being opened is the same file.
+    /// </para>
     /// </summary>
-    private string? _postUnlockStatus;
+    private (string Path, string Message)? _postUnlockStatus;
 
     public override void Initialize()
     {
@@ -371,11 +375,15 @@ public partial class App : Application
         }
 
         // An action that destroyed the previous session (a backup restore) left its
-        // outcome here; surface it on the first session that follows.
-        if (_postUnlockStatus is { } postUnlockStatus)
+        // outcome here; surface it on the session that follows - but only for the same
+        // vault. A stale message must never be attributed to a different file.
+        if (_postUnlockStatus is { } pending)
         {
             _postUnlockStatus = null;
-            viewModel.StatusMessage = postUnlockStatus;
+            if (SameVaultPath(pending.Path, vault.VaultPath))
+            {
+                viewModel.StatusMessage = pending.Message;
+            }
         }
         viewModel.StartupGuideDismissed = _preferences.StartupGuideDismissed;
         viewModel.AttachStartupGuideCallback(() =>
@@ -1241,9 +1249,13 @@ public partial class App : Application
                 // The settings window is gone by now, so its status line can never
                 // show this. Carry the outcome across the unlock instead of losing
                 // it - the user needs to know whether the restore actually worked.
-                _postUnlockStatus = result.Success
-                    ? Loc.T("Settings_BackupRestoreDone")
-                    : Loc.Format("Settings_BackupStatusFailed", result.FailureCode ?? "unknown");
+                // The path is stored with it so a stale message cannot be shown for a
+                // different vault later.
+                _postUnlockStatus = (
+                    vaultPath,
+                    result.Success
+                        ? Loc.T("Settings_BackupRestoreDone")
+                        : Loc.Format("Settings_BackupStatusFailed", result.FailureCode ?? "unknown"));
 
                 return result;
             },
@@ -1299,6 +1311,26 @@ public partial class App : Application
         catch (Exception)
         {
             // Closing is best effort; the guards in the view model stay in place.
+        }
+    }
+
+    /// <summary>
+    /// Compares two vault paths for identity, tolerating the forms a user can produce
+    /// (relative, different case on Windows, mixed separators). Unparsable input simply
+    /// compares unequal, which only means the message is dropped.
+    /// </summary>
+    private static bool SameVaultPath(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return false;
         }
     }
 
