@@ -34,45 +34,50 @@ jobs:
           fi
           echo "found CHANGELOG section for ${version}"
 
+  # Decides which platforms this run builds. Kept as a separate job because
+  # `matrix` is not available in `jobs.<job_id>.if` (only github/needs/vars/
+  # inputs are), so the matrix cannot filter itself - doing that made the whole
+  # workflow fail to parse and it ran with no jobs at all.
+  plan:
+    name: plan
+    needs: changelog
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      # A tag push builds Windows and Linux only. The macOS legs cost runner
+      # minutes that the account may not have (on 2026-11-12 both were
+      # cancelled one second after starting, and that took the whole release
+      # down), so they are opt-in: re-dispatch with build-macos=true to
+      # backfill them into the same release later.
+      - name: Choose the build matrix
+        id: matrix
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const include = [
+              { os: 'windows-latest', rid: 'win-x64', experimental: false },
+              { os: 'ubuntu-22.04', rid: 'linux-x64', experimental: false },
+            ];
+
+            const macos = context.eventName === 'workflow_dispatch' &&
+              (context.payload.inputs?.['build-macos'] === 'true');
+            if (macos) {
+              include.push(
+                { os: 'macos-14', rid: 'osx-arm64', experimental: false },
+                { os: 'macos-14', rid: 'osx-x64', experimental: false },
+              );
+            }
+
+            core.setOutput('matrix', JSON.stringify({ include }));
+            core.info(`building: ${include.map(m => m.rid).join(', ')}`);
+
   publish:
     name: publish (${{ matrix.rid }})
-    needs: changelog
+    needs: [changelog, plan]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-            experimental: false
-            macos: false
-          - os: ubuntu-22.04
-            rid: linux-x64
-            experimental: false
-            macos: false
-          - os: macos-14
-            rid: osx-arm64
-            # Green since the SDK sysroot + dynamic-lookup workaround in
-            # AegisVault.App.csproj (run 35426423612; dotnet/runtime#125858).
-            experimental: false
-            macos: true
-          - os: macos-14
-            rid: osx-x64
-            # macos-13 is EOL; cross-arch AOT from the arm64 host is supported
-            # by the SDK (Xcode ships both toolchains) and verified in
-            # run 35426423612.
-            experimental: false
-            macos: true
-    # macOS runners are skipped unless the dispatch asks for them. A tag push
-    # builds Windows and Linux only, so a spent macOS minute quota cannot take
-    # the whole release down: on 2026-11-12 both macOS jobs were cancelled one
-    # second after they started, which made needs.publish.result != success and
-    # skipped the release job even though Windows and Linux had built fine.
-    #
-    # This is an explicit dispatch input rather than a cheaper runner because
-    # the two macOS artifacts are a documented part of every release; whoever
-    # ships should see that they are missing instead of getting them silently
-    # dropped. Re-dispatch with build-macos=true once the quota is back.
-    if: ${{ !matrix.macos || (github.event_name == 'workflow_dispatch' && inputs.build-macos) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     steps:
