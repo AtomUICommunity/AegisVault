@@ -34,6 +34,19 @@ public partial class MainWindow : Window
     private bool _handlersAttached;
     private bool _clipboardCleanupAttached;
 
+    /// <summary>
+    /// True between the tray startup's <c>Show()</c> and the deferred <c>Hide()</c>.
+    /// Any other <see cref="Show"/> arriving in that gap means the user asked for
+    /// the window (tray click, hotkey), so the parked hide must stand down.
+    /// </summary>
+    private bool _trayHidePending;
+
+    /// <summary>Set when the window was re-shown inside the tray-hide gap.</summary>
+    private bool _keepVisible;
+
+    /// <summary>True while the tray startup's own <see cref="Show"/> is running.</summary>
+    private bool _trayShowInProgress;
+
     /// <summary>Raised when the user asks to unlock from the lock overlay.</summary>
     public event Action? UnlockRequested;
 
@@ -456,6 +469,89 @@ public partial class MainWindow : Window
         };
 
         Activated += (_, _) => _autoLock.ReportActivity();
+    }
+
+    /// <summary>
+    /// Opens and immediately re-hides the window for tray mode (auto-start or
+    /// "start minimized"): the session needs a shown window - the desktop
+    /// lifetime drops the application when its last window goes away - but the
+    /// user must not see it.
+    /// <para>
+    /// Showing and hiding in the same turn leaves a one-pixel frame outline on
+    /// the desktop. The window extends its client area into the decorations, so
+    /// DWM paints a native border and shadow; hiding before the compositor has
+    /// presented the first frame means nothing ever repaints that border away.
+    /// The residual outline sits exactly on the window rectangle and disappears
+    /// only when the window is shown and hidden again properly - which is why
+    /// clicking the tray icon twice used to clear it.
+    /// </para>
+    /// <para>
+    /// So: show it fully transparent, let the compositor run a frame, and only
+    /// then hide. A not-yet-presented frame at zero opacity cannot flash, and the
+    /// presented frame gives DWM a complete composition to tear down cleanly.
+    /// </para>
+    /// </summary>
+    public void ShowThenHideForTray()
+    {
+        var restoreOpacity = Opacity;
+        Opacity = 0;
+        _trayHidePending = true;
+        _keepVisible = false;
+        _trayShowInProgress = true;
+        try
+        {
+            Show();
+            _trayShowInProgress = false;
+
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    _trayHidePending = false;
+
+                    // A tray click or hotkey between the Show and this callback
+                    // already brought the window up: hiding it now would take it
+                    // away from the user.
+                    if (!_keepVisible)
+                    {
+                        Hide();
+                    }
+
+                    _keepVisible = false;
+                    Opacity = restoreOpacity;
+                },
+                DispatcherPriority.Render);
+        }
+        catch
+        {
+            _trayHidePending = false;
+            _trayShowInProgress = false;
+
+            // Never leave the window invisible-but-solid: it may be re-shown by
+            // the tray icon, and an opacity of 0 would look like a dead window.
+            Opacity = restoreOpacity;
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Marks a show that came from the user (tray icon, hotkey, second launch)
+    /// while the tray startup's hide is still parked on the dispatcher.
+    /// <para>
+    /// The window is already visible with opacity 0 at that point, so Avalonia
+    /// raises no visibility change and nothing else can detect the intent. The
+    /// startup calls <see cref="ShowThenHideForTray"/>, which sets
+    /// <see cref="_trayHidePending"/> first and then calls this base
+    /// implementation, so the flag tells the two paths apart.
+    /// </para>
+    /// </summary>
+    public override void Show()
+    {
+        if (_trayHidePending && !_trayShowInProgress)
+        {
+            _keepVisible = true;
+        }
+
+        base.Show();
     }
 
     /// <summary>

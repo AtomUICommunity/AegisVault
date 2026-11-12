@@ -459,11 +459,12 @@ public partial class App : Application
 
         // Tray mode (auto-start / StartMinimized): the window exists and stays
         // open, but is not shown; the tray icon and hotkey bring it back.
+        // The show/hide pair goes through MainWindow, which defers the hide by a
+        // frame so no frame outline is left behind on the desktop.
         if (_startMinimizedOnLaunch && !_startMinimizedConsumed)
         {
             _startMinimizedConsumed = true;
-            window.Show();
-            window.Hide();
+            window.ShowThenHideForTray();
         }
         else
         {
