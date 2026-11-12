@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      build-macos:
+        description: 'Also build the macOS artifacts (needs macOS runner minutes)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,20 +44,35 @@ jobs:
           - os: windows-latest
             rid: win-x64
             experimental: false
+            macos: false
           - os: ubuntu-22.04
             rid: linux-x64
             experimental: false
+            macos: false
           - os: macos-14
             rid: osx-arm64
             # Green since the SDK sysroot + dynamic-lookup workaround in
             # AegisVault.App.csproj (run 35426423612; dotnet/runtime#125858).
             experimental: false
+            macos: true
           - os: macos-14
             rid: osx-x64
             # macos-13 is EOL; cross-arch AOT from the arm64 host is supported
             # by the SDK (Xcode ships both toolchains) and verified in
             # run 35426423612.
             experimental: false
+            macos: true
+    # macOS runners are skipped unless the dispatch asks for them. A tag push
+    # builds Windows and Linux only, so a spent macOS minute quota cannot take
+    # the whole release down: on 2026-11-12 both macOS jobs were cancelled one
+    # second after they started, which made needs.publish.result != success and
+    # skipped the release job even though Windows and Linux had built fine.
+    #
+    # This is an explicit dispatch input rather than a cheaper runner because
+    # the two macOS artifacts are a documented part of every release; whoever
+    # ships should see that they are missing instead of getting them silently
+    # dropped. Re-dispatch with build-macos=true once the quota is back.
+    if: ${{ !matrix.macos || (github.event_name == 'workflow_dispatch' && inputs.build-macos) }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     steps:
@@ -194,10 +214,17 @@ jobs:
   release:
     name: release
     needs: publish
-    # Only ships when the required platform builds succeeded; experimental
-    # platforms may fail without blocking, but an all-red run must not create
-    # an empty release.
-    if: startsWith(github.ref, 'refs/tags/') && needs.publish.result == 'success'
+    # Ships on any tag push unless the run itself was cancelled. Deliberately
+    # NOT gated on needs.publish.result: the matrix skips the macOS legs on a
+    # normal tag push, and the docs do not define what needs.<job>.result
+    # reports when only part of a matrix runs. Relying on it is what silently
+    # skipped this job on 2026-11-12 after both macOS runners were cancelled a
+    # second after starting.
+    #
+    # The real gate is the artifact check below: the release only ships when
+    # every mandatory platform actually produced its files, so a failed Windows
+    # or Linux build still blocks it with a clear message.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -207,7 +234,40 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-          if-no-files-found: error
+          # Not `error` here: when every publish leg failed there is nothing to
+          # download, and this step would report a vague "no files found"
+          # instead of naming the platform that is actually missing. The guard
+          # below checks the specific artifacts and fails with a clear message.
+          if-no-files-found: warn
+
+      # A release with only half its checksums is worse than a failed run, so
+      # require the two artifacts every tag push is supposed to produce.
+      - name: Require the mandatory artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for rid in win-x64 linux-x64; do
+            if ! ls artifacts/*"${rid}"* >/dev/null 2>&1; then
+              echo "::error::missing artifacts for ${rid}"
+              missing=1
+            fi
+          done
+          if [ ! -f artifacts/SHA256SUMS-win-x64 ]; then
+            echo "::error::missing SHA256SUMS-win-x64"
+            missing=1
+          fi
+          if [ ! -f artifacts/SHA256SUMS-linux-x64 ]; then
+            echo "::error::missing SHA256SUMS-linux-x64"
+            missing=1
+          fi
+          if [ "${missing}" -ne 0 ]; then
+            echo "artifacts present:"
+            ls -la artifacts || true
+            exit 1
+          fi
+          echo "mandatory artifacts present; macOS artifacts are optional"
+          ls -la artifacts
 
       # Release notes come from CHANGELOG.md (single source of truth) instead of
       # the auto-generated commit list, so the published text matches the repo.
